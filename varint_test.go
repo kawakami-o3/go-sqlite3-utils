@@ -48,3 +48,26 @@ func TestEncodeMax(t *testing.T) {
 		})
 	}
 }
+
+func TestDencodeMax(t *testing.T) {
+
+	testCase := map[uint64][]byte{}
+	testCase[240] = []byte{240}
+	testCase[2287] = []byte{248, 255}
+	testCase[67823] = []byte{249, 255, 255}
+	testCase[16777215] = []byte{250, 255, 255, 255}
+	testCase[4294967295] = []byte{251, 255, 255, 255, 255}
+	testCase[1099511627775] = []byte{252, 255, 255, 255, 255, 255}
+	testCase[281474976710655] = []byte{253, 255, 255, 255, 255, 255, 255}
+	testCase[72057594037927935] = []byte{254, 255, 255, 255, 255, 255, 255, 255}
+	testCase[18446744073709551615] = []byte{255, 255, 255, 255, 255, 255, 255, 255, 255}
+
+	for k, v := range testCase {
+		//fmt.Println(Decode([]byte{240}))
+
+		n, _ := Decode(v)
+		if n != k {
+			t.Error("n>", k, n)
+		}
+	}
+}
