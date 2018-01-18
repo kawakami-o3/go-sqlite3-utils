@@ -1,4 +1,0 @@
-package varint
-
-func Encode() {
-}
