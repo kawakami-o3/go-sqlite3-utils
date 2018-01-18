@@ -1,0 +1,4 @@
+package varint
+
+func Encode() {
+}
