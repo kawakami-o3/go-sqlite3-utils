@@ -1,4 +1,4 @@
-package varint
+package sqlite3utils
 
 import (
 	"testing"

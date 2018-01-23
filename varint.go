@@ -1,4 +1,4 @@
-package varint
+package sqlite3utils
 
 func toBigEndian(v uint64) []byte {
 	if v == 0 {
