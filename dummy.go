@@ -1,0 +1,5 @@
+package dummy
+
+
+func main() {
+}
