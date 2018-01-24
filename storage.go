@@ -184,6 +184,7 @@ func procPage(cnt []byte, page_num, page_size int) *Page {
 			header_ints = append(header_ints, v)
 
 			serial_type := int(v)
+			page.serialType = append(page.serialType, serial_type)
 
 			var desc string
 			var size int
@@ -267,21 +268,79 @@ type Page struct {
 	cellPtrOffset int
 	child         *Page
 
-	table Table
+	serialType []int
+	datas      [][]byte
 }
 
-type Table struct {
-	rows []Row
+/*
+const (
+	SerialTypeNull = 0
+	SerialTypeInt8 = 1
+	SerialTypeInt16 = 2
+	SerialTypeInt24 = 3
+	SerialTypeInt32 = 4
+	SerialTypeInt48 = 5
+	SerialTypeInt64 = 6
+	SerialTypeFloat64 = 7
+	SerialTypeJust0 = 8
+	SerialTypeJust1 = 9
+	SerialTypeNotUsed0 = 10
+	SerialTypeNotUsed1 = 11
+	// SerialTypeBlob
+	// SerialTypeText
+)
+*/
+
+func takeData(bytes []byte, serialType int) []byte {
+	var size int
+	if serialType == 0 {
+		size = 0
+	} else if serialType == 1 {
+		size = 1
+	} else if serialType == 2 {
+		size = 2
+	} else if serialType == 3 {
+		size = 3
+	} else if serialType == 4 {
+		size = 4
+	} else if serialType == 5 {
+		size = 6
+	} else if serialType == 6 {
+		size = 8
+	} else if serialType == 7 {
+		size = 8
+	} else if serialType == 8 {
+		size = 0
+	} else if serialType == 9 {
+		size = 0
+	} else if serialType == 10 {
+		size = 0
+	} else if serialType == 11 {
+		size = 0
+	} else if serialType%2 == 0 {
+		size = (serialType - 12) / 2
+	} else { // odd
+		size = (serialType - 13) / 2
+	}
+
+	return bytes[0:size]
 }
 
-type Row struct {
-	cells []Cell
+type Data struct {
+	dataType int
+	bytes    []byte
 }
 
-type Cell struct {
-	cellType int
-	value    string
-}
+const (
+	DataTypeNil = iota + 1
+	DataTypeInt
+	DataTypeInt64
+	DataTypeFloat64
+	DataTypeBool
+	DataTypeBytes
+	DataTypeString
+	DataTypeTime
+)
 
 type Storage struct {
 	filepath string
@@ -339,9 +398,10 @@ type Header struct {
 	sqlNum       uint
 }
 
-func main() {
+func Load(path string) {
 
-	file, err := os.Open("test.db")
+	file, err := os.Open(path)
+	//file, err := os.Open("test.db")
 	//file, err := os.Open("wc.db")
 	//file, err := os.Open("root.wc.db")
 	defer file.Close()
