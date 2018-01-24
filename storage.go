@@ -1,4 +1,4 @@
-package storage
+package sqlite3utils
 
 import (
 	"fmt"
@@ -9,7 +9,6 @@ import (
 	"strconv"
 
 	"github.com/k0kubun/pp"
-	"github.com/kawakami-o3/go-sqlite3-utils/varint"
 )
 
 /***********************************************************
@@ -149,11 +148,11 @@ func procPage(cnt []byte, page_num, page_size int) *Page {
 		delta := 0
 		payload_size := 0
 
-		v, i = varint.Decode(fetch(cnt, cellOffset, 8))
+		v, i = decodeVarint(fetch(cnt, cellOffset, 8))
 		delta += int(i)
 		payload_size = int(v)
 
-		v, i = varint.Decode(fetch(cnt, cellOffset+delta, 8))
+		v, i = decodeVarint(fetch(cnt, cellOffset+delta, 8))
 		delta += int(i)
 		rowid := v
 		fmt.Println("rowid:", rowid, i)
@@ -166,7 +165,7 @@ func procPage(cnt []byte, page_num, page_size int) *Page {
 
 		payload_bytes := fetch(cnt, cellOffset+delta, payload_size)
 
-		v, i = varint.Decode(payload_bytes)
+		v, i = decodeVarint(payload_bytes)
 		header_size := int(v)
 
 		header_ints := []uint64{}
@@ -175,7 +174,7 @@ func procPage(cnt []byte, page_num, page_size int) *Page {
 		total := int(i)
 		for header_size > total {
 			fmt.Println(">", header_size, total)
-			v, i = varint.Decode(payload_bytes[total:])
+			v, i = decodeVarint(payload_bytes[total:])
 			if i == 0 {
 				fmt.Println("internal error")
 				return nil

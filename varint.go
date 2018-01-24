@@ -1,4 +1,4 @@
-package varint
+package sqlite3utils
 
 func toBigEndian(v uint64) []byte {
 	if v == 0 {
@@ -26,7 +26,7 @@ func toUint64(v uint64) []byte {
 	return ret
 }
 
-func Decode(bytes []byte) (uint64, uint) {
+func decodeVarint(bytes []byte) (uint64, uint) {
 	if len(bytes) == 0 {
 		return 0, 0
 	}
@@ -50,7 +50,7 @@ func Decode(bytes []byte) (uint64, uint) {
 
 }
 
-func Encode(v uint64) []byte {
+func encodeVarint(v uint64) []byte {
 
 	if v <= 240 {
 		return []byte{byte(v)}

@@ -1,4 +1,4 @@
-package varint
+package sqlite3utils
 
 import (
 	"testing"
@@ -23,7 +23,7 @@ func assertEqAll(t *testing.T, expect byte, actual []byte) {
 func TestEncodeMax(t *testing.T) {
 
 	t.Run("v=240", func(t *testing.T) {
-		bytes := Encode(240)
+		bytes := encodeVarint(240)
 		//fmt.Println(bytes)
 		assertEq(t, 240, bytes[0])
 	})
@@ -41,7 +41,7 @@ func TestEncodeMax(t *testing.T) {
 
 	for k, v := range testCase {
 		t.Run("v="+string(k), func(t *testing.T) {
-			bytes := Encode(k)
+			bytes := encodeVarint(k)
 			//fmt.Println(v, bytes)
 			assertEq(t, v, bytes[0])
 			assertEqAll(t, 255, bytes[1:])
@@ -63,9 +63,9 @@ func TestDencodeMax(t *testing.T) {
 	testCase[18446744073709551615] = []byte{255, 255, 255, 255, 255, 255, 255, 255, 255}
 
 	for k, v := range testCase {
-		//fmt.Println(Decode([]byte{240}))
+		//fmt.Println(decodeVarint([]byte{240}))
 
-		n, _ := Decode(v)
+		n, _ := decodeVarint(v)
 		if n != k {
 			t.Error("n>", k, n)
 		}
