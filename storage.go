@@ -329,6 +329,7 @@ func takeData(bytes []byte, serialType int) []byte {
 type Data struct {
 	dataType int
 	bytes    []byte
+	value    string
 }
 
 const (
@@ -483,6 +484,7 @@ func Load(path string) {
 
 	//load_size := 100
 	schema_page := procPage(cnt, 1, page_size)
+	pp.Println(schema_page)
 
 	page_no := 1
 	for 100+page_size*page_no < len(cnt) {
@@ -491,7 +493,5 @@ func Load(path string) {
 		page := procPage(cnt, page_no, page_size)
 		pp.Println(page)
 	}
-
-	pp.Println(schema_page)
 
 }

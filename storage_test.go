@@ -1,9 +1,10 @@
 package sqlite3utils
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"testing"
 )
 
@@ -24,31 +25,44 @@ func assertEqAll(t *testing.T, expect byte, actual []byte) {
 
 }
 */
-func TestSimpleLoad(t *testing.T) {
 
-	filename := "/tmp/test.db"
-	{
-		_, err := os.Stat(filename)
+func execSQLite(filename string, queries []string) {
+	script, _ := filepath.Abs("./script/sqlite.rb")
+	escape := regexp.MustCompile(`'`)
+	for _, q := range queries {
+		q = escape.ReplaceAllString(q, "\\'")
+		//fmt.Print("Query> " + q)
+		//out, err := exec.Command("ruby", script, filename, q).Output()
+		err := exec.Command("ruby", script, filename, q).Run()
+		//fmt.Print("Result> " + string(out))
 		if err != nil {
-			//err := exec.Command("sqlite3", "-cmd 'CREATE TABLE person(id integer, name text);'", filename).Run()
-			//err := exec.Command("echo", "'CREATE TABLE person(id integer, name text);' | sqlite3 test.db", filename).Run()
-			//err := exec.Command("echo", "'CREATE TABLE person(id integer, name text);' | sqlite3 test.db", filename).Run()
-			err := exec.Command("bash", "make_db.sh", filename).Run()
-			if err != nil {
-				fmt.Println("sqlite3", filename)
-			}
+			panic(err)
 		}
 	}
+}
+
+func rmSQLite(filename string) {
+	_, err := os.Stat(filename)
+	if err == nil {
+		err := exec.Command("rm", filename).Run()
+		if err != nil {
+			panic(err)
+		}
+	}
+}
+
+func TestSimpleLoad(t *testing.T) {
+	filename := "/tmp/test.db"
+	rmSQLite(filename)
+
+	execSQLite(filename, []string{
+		"CREATE TABLE person(id integer, name text);",
+		"INSERT INTO person VALUES (1, \"hoge\");",
+		"INSERT INTO person VALUES (2, \"foo\");",
+		"INSERT INTO person VALUES (3, \"bar\");",
+	})
 
 	Load(filename)
 
-	{
-		_, err := os.Stat(filename)
-		if err == nil {
-			err := exec.Command("rm", filename).Run()
-			if err != nil {
-				fmt.Println("rm", filename)
-			}
-		}
-	}
+	//rmSQLite(filename)
 }
