@@ -64,5 +64,5 @@ func TestSimpleLoad(t *testing.T) {
 
 	Load(filename)
 
-	//rmSQLite(filename)
+	rmSQLite(filename)
 }

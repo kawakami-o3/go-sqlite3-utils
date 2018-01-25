@@ -1,6 +1,7 @@
 package sqlite3utils
 
 import (
+	"encoding/binary"
 	"fmt"
 
 	"io/ioutil"
@@ -25,26 +26,6 @@ CREATE TABLE sqlite_master(
 type =>  'table', 'index', 'view', or 'trigger'
 
 ***********************************************************/
-
-const (
-	ColNull = iota
-	ColInt8
-	ColInt16
-	ColInt24
-	ColInt32
-	ColInt48
-	ColInt64
-	ColFloat64
-	ColJust0
-	ColJust1
-	ColBlob
-	ColText
-	ColReserved
-)
-
-func parseSerialType(typeId int) {
-}
-
 func toInt(bytes []byte) int {
 	l := len(bytes)
 	ret := 0
@@ -67,16 +48,6 @@ func fetchInt(bytes []byte, offset, size int) int {
 	return toInt(bytes[offset : offset+size])
 }
 
-/*
-func printPageHeader(page map[string]int) {
-	fmt.Println("type :", page["page_type"])
-	fmt.Println("free :", page["free_block"])
-	fmt.Println("cell :", page["cell_number"])
-	fmt.Println("start:", page["start_cell"])
-	fmt.Println("frags:", page["fragment_bytes"])
-}
-*/
-
 func procPage(cnt []byte, page_num, page_size int) *Page {
 	page := &Page{}
 
@@ -90,15 +61,13 @@ func procPage(cnt []byte, page_num, page_size int) *Page {
 		10: leaf index b-tree page
 		13: leaf table b-tree page
 	*/
+
 	page.pageType = toInt(fetch(cnt, offset, 1))
 	if page.pageType == 0 {
-		fmt.Println("DEBUG: EMPTY page :", page_num)
-		l := 30
-		fmt.Println(offset)
-		fmt.Println(fetch(cnt, offset-l/2, l))
+		fmt.Println("[%d]WARN: empty page", page_num)
 		return page // empty
 	} else if page.pageType != 13 {
-		fmt.Println("DEBUG: Not yet implemented.")
+		fmt.Println("[%d]WARN: Not yet implemented. pageType=%d", page_num, page.pageType)
 		return page
 	}
 	page.freeBlock = toInt(fetch(cnt, offset+1, 2))
@@ -133,9 +102,9 @@ func procPage(cnt []byte, page_num, page_size int) *Page {
 	page.cellPtrOffset = toInt(fetch(cnt, cellPtrOffset, 2))
 
 	// In case of type=13 ...
-	fmt.Println()
+	//fmt.Println()
 	cellOffset := page.startCellPtr + page_size*(page_num-1)
-	fmt.Printf("Cell Content[Offset=%d]\n", cellOffset)
+	//fmt.Printf("Cell Content[Offset=%d]\n", cellOffset)
 	//fmt.Println(fetch(cnt, cellOffset, page_size+offset-cellOffset+10))
 
 	//rest_size := page_size - page["start_cell"]
@@ -155,7 +124,6 @@ func procPage(cnt []byte, page_num, page_size int) *Page {
 		v, i = decodeVarint(fetch(cnt, cellOffset+delta, 8))
 		delta += int(i)
 		rowid := v
-		fmt.Println("rowid:", rowid, i)
 
 		if cellOffset+payload_size > page_num*page_size {
 			fmt.Println("Need to check an overflow page. (exp, act) = ",
@@ -169,11 +137,12 @@ func procPage(cnt []byte, page_num, page_size int) *Page {
 		header_size := int(v)
 
 		header_ints := []uint64{}
-		column_desc := []string{}
-		column_size := []int{}
 		total := int(i)
+
+		dataShift := header_size
+		row := Row{rowid: rowid, datas: []Data{}}
 		for header_size > total {
-			fmt.Println(">", header_size, total)
+			//fmt.Println(">", header_size, total)
 			v, i = decodeVarint(payload_bytes[total:])
 			if i == 0 {
 				fmt.Println("internal error")
@@ -183,75 +152,15 @@ func procPage(cnt []byte, page_num, page_size int) *Page {
 
 			header_ints = append(header_ints, v)
 
-			serial_type := int(v)
-			page.serialType = append(page.serialType, serial_type)
+			serialType := int(v)
 
-			var desc string
-			var size int
-			if serial_type == 0 {
-				desc = "null"
-				size = 0
-			} else if serial_type == 1 {
-				desc = "int"
-				size = 1
-			} else if serial_type == 2 {
-				desc = "int"
-				size = 2
-			} else if serial_type == 3 {
-				desc = "int"
-				size = 3
-			} else if serial_type == 4 {
-				desc = "int"
-				size = 4
-			} else if serial_type == 5 {
-				desc = "int"
-				size = 6
-			} else if serial_type == 6 {
-				desc = "int"
-				size = 8
-			} else if serial_type == 7 {
-				desc = "float64"
-				size = 8
-			} else if serial_type == 8 {
-				desc = "just0"
-				size = 0
-			} else if serial_type == 9 {
-				desc = "just1"
-				size = 0
-			} else if serial_type == 10 {
-				desc = "not_used"
-				size = 0
-			} else if serial_type == 11 {
-				desc = "not_used"
-				size = 0
-			} else if serial_type%2 == 0 {
-				desc = "blob"
-				size = (serial_type - 12) / 2
-			} else { // odd
-				//desc = fmt.Sprintf("text[%d]", (serial_type-13)/2)
-				desc = "text"
-				size = (serial_type - 13) / 2
-			}
+			d := takeData(payload_bytes[dataShift:], serialType)
 
-			column_desc = append(column_desc, desc)
-			column_size = append(column_size, size)
-		}
-		fmt.Println("headers:", header_ints)
-		fmt.Println("column_desc:", column_desc)
-		fmt.Println("column_size:", column_size)
-
-		column_shift := 0
-		for i, s := range column_size {
-			if column_desc[i] == "text" {
-				fmt.Println(string(fetch(payload_bytes, header_size+column_shift, s)))
-			} else if column_desc[i] == "int" {
-				fmt.Println(toInt(fetch(payload_bytes, header_size+column_shift, s)))
-			} else {
-				fmt.Println(fetch(payload_bytes, header_size+column_shift, s))
-			}
-			column_shift += s
+			row.datas = append(row.datas, d)
+			dataShift += len(d.bytes)
 		}
 
+		page.rows = append(page.rows, row)
 		cellOffset += payload_size + delta
 	}
 
@@ -268,30 +177,16 @@ type Page struct {
 	cellPtrOffset int
 	child         *Page
 
-	serialType []int
-	datas      [][]byte
+	// serialTypes []int // Fail in case of "blob" or "text"
+	rows []Row
 }
 
-/*
-const (
-	SerialTypeNull = 0
-	SerialTypeInt8 = 1
-	SerialTypeInt16 = 2
-	SerialTypeInt24 = 3
-	SerialTypeInt32 = 4
-	SerialTypeInt48 = 5
-	SerialTypeInt64 = 6
-	SerialTypeFloat64 = 7
-	SerialTypeJust0 = 8
-	SerialTypeJust1 = 9
-	SerialTypeNotUsed0 = 10
-	SerialTypeNotUsed1 = 11
-	// SerialTypeBlob
-	// SerialTypeText
-)
-*/
+type Row struct {
+	rowid uint64
+	datas []Data
+}
 
-func takeData(bytes []byte, serialType int) []byte {
+func takeData(bytes []byte, serialType int) Data {
 	var size int
 	if serialType == 0 {
 		size = 0
@@ -323,25 +218,49 @@ func takeData(bytes []byte, serialType int) []byte {
 		size = (serialType - 13) / 2
 	}
 
-	return bytes[0:size]
+	bs := bytes[0:size]
+	var value string
+	if or(serialType, []int{0, 10, 11}) {
+		value = ""
+	} else if or(serialType, []int{1, 2, 3, 4, 5, 6}) {
+		//value = strconv.Itoa(binary.BigEndian.Uint64(bs))
+		//value = strconv.FormatUint(binary.BigEndian.Uint64(bs), 10)
+		value = strconv.Itoa(toInt(bs))
+	} else if serialType == 7 {
+		f := math.Float64frombits(binary.BigEndian.Uint64(bs))
+		value = strconv.FormatFloat(f, 'e', 8, 64)
+	} else if serialType == 8 {
+		value = "0"
+	} else if serialType == 9 {
+		value = "1"
+	} else if serialType%2 == 0 {
+		value = "[" + strconv.Itoa(int(bs[0]))
+		for _, b := range bs[1:] {
+			value += "," + strconv.Itoa(int(b))
+		}
+		value += "]"
+	} else {
+		value = string(bs)
+	}
+
+	//return Data{serialType: serialType, bytes: bs, value: value}, size
+	return Data{serialType: serialType, bytes: bs, value: value}
+}
+
+func or(i int, ns []int) bool {
+	for _, n := range ns {
+		if i == n {
+			return true
+		}
+	}
+	return false
 }
 
 type Data struct {
-	dataType int
-	bytes    []byte
-	value    string
+	serialType int
+	bytes      []byte
+	value      string
 }
-
-const (
-	DataTypeNil = iota + 1
-	DataTypeInt
-	DataTypeInt64
-	DataTypeFloat64
-	DataTypeBool
-	DataTypeBytes
-	DataTypeString
-	DataTypeTime
-)
 
 type Storage struct {
 	filepath string
@@ -374,29 +293,29 @@ func (s *Storage) take(n uint) []byte {
 
 type Header struct {
 	headerString   string
-	pageSize       uint
-	writeVersion   uint
-	readVersion    uint
-	reservedSize   uint
-	payloadMax     uint
-	payloadMin     uint
-	payloadLeaf    uint
-	changeCounter  uint
-	inHeaderDbSize uint
+	pageSize       int
+	writeVersion   int
+	readVersion    int
+	reservedSize   int
+	payloadMax     int
+	payloadMin     int
+	payloadLeaf    int
+	changeCounter  int
+	inHeaderDbSize int
 
-	freeTrunk1st uint
-	totalFree    uint
-	schemaCookie uint
-	schemaNumber uint
-	cacheSize    uint
-	logest       uint
-	encoding     uint
-	userVersion  uint
-	vacuumMode   uint
-	appId        uint
-	reserved     uint
-	vvfNum       uint
-	sqlNum       uint
+	freeTrunk1st int
+	totalFree    int
+	schemaCookie int
+	schemaNumber int
+	cacheSize    int
+	logest       int
+	encoding     int
+	userVersion  int
+	vacuumMode   int
+	appId        int
+	reserved     int
+	vvfNum       int
+	sqlNum       int
 }
 
 func Load(path string) {
@@ -415,59 +334,33 @@ func Load(path string) {
 		panic(err)
 	}
 
-	header := map[string]string{}
-	header["header_string"] = string(cnt[0:16])
-	header["page_size"] = strconv.Itoa(fetchInt(cnt, 16, 2))
-	header["write_version"] = strconv.Itoa(fetchInt(cnt, 18, 1))
-	header["read_version"] = strconv.Itoa(fetchInt(cnt, 19, 1))
-	header["reserved_size"] = strconv.Itoa(fetchInt(cnt, 20, 1))
-	header["payload_max"] = strconv.Itoa(fetchInt(cnt, 21, 1))
-	header["payload_min"] = strconv.Itoa(fetchInt(cnt, 22, 1))
-	header["payload_leaf"] = strconv.Itoa(fetchInt(cnt, 23, 1))
-	header["change_counter"] = strconv.Itoa(fetchInt(cnt, 24, 4))
-	header["in-hdr_db_size"] = strconv.Itoa(fetchInt(cnt, 28, 4))
-	header["1st_free_trunk"] = strconv.Itoa(fetchInt(cnt, 32, 4))
-	header["total_free"] = strconv.Itoa(fetchInt(cnt, 36, 4))
-	header["schema_cookie"] = strconv.Itoa(fetchInt(cnt, 40, 4))
-	header["schema_number"] = strconv.Itoa(fetchInt(cnt, 44, 4))
-	header["cache_size"] = strconv.Itoa(fetchInt(cnt, 48, 4))
-	header["logest"] = strconv.Itoa(fetchInt(cnt, 52, 4))
-	header["encoding"] = strconv.Itoa(fetchInt(cnt, 56, 4))
-	header["user_version"] = strconv.Itoa(fetchInt(cnt, 60, 4))
-	header["vacuum_mode"] = strconv.Itoa(fetchInt(cnt, 64, 4))
-	header["app_id"] = strconv.Itoa(fetchInt(cnt, 68, 4))
-	header["reserved"] = strconv.Itoa(fetchInt(cnt, 72, 20))
-	header["vvf_num"] = strconv.Itoa(fetchInt(cnt, 92, 4))
-	header["sql_num"] = strconv.Itoa(fetchInt(cnt, 96, 4))
-
-	for _, i := range []string{
-		"header_string",
-		"page_size",
-		"write_version",
-		"read_version",
-		"reserved_size",
-		"payload_max",
-		"payload_min",
-		"payload_leaf",
-		"change_counter",
-		"in-hdr_db_size",
-
-		"1st_free_trunk",
-		"total_free",
-		"schema_cookie",
-		"schema_number",
-		"cache_size",
-		"logest",
-		"encoding",
-		"user_version",
-		"vacuum_mode",
-		"app_id",
-		"reserved",
-		"vvf_num",
-		"sql_num",
-	} {
-		fmt.Printf(" %-14s : %s\n", i, header[i])
+	header := Header{
+		headerString:   string(cnt[0:16]),
+		pageSize:       fetchInt(cnt, 16, 2),
+		writeVersion:   fetchInt(cnt, 18, 1),
+		readVersion:    fetchInt(cnt, 19, 1),
+		reservedSize:   fetchInt(cnt, 20, 1),
+		payloadMax:     fetchInt(cnt, 21, 1),
+		payloadMin:     fetchInt(cnt, 22, 1),
+		payloadLeaf:    fetchInt(cnt, 23, 1),
+		changeCounter:  fetchInt(cnt, 24, 4),
+		inHeaderDbSize: fetchInt(cnt, 28, 4),
+		freeTrunk1st:   fetchInt(cnt, 32, 4),
+		totalFree:      fetchInt(cnt, 36, 4),
+		schemaCookie:   fetchInt(cnt, 40, 4),
+		schemaNumber:   fetchInt(cnt, 44, 4),
+		cacheSize:      fetchInt(cnt, 48, 4),
+		logest:         fetchInt(cnt, 52, 4),
+		encoding:       fetchInt(cnt, 56, 4),
+		userVersion:    fetchInt(cnt, 60, 4),
+		vacuumMode:     fetchInt(cnt, 64, 4),
+		appId:          fetchInt(cnt, 68, 4),
+		reserved:       fetchInt(cnt, 72, 20),
+		vvfNum:         fetchInt(cnt, 92, 4),
+		sqlNum:         fetchInt(cnt, 96, 4),
 	}
+
+	pp.Println(header)
 
 	/*
 		fmt.Println()
@@ -480,17 +373,15 @@ func Load(path string) {
 		}
 	*/
 
-	page_size, _ := strconv.Atoi(header["page_size"])
-
 	//load_size := 100
-	schema_page := procPage(cnt, 1, page_size)
+	schema_page := procPage(cnt, 1, header.pageSize)
 	pp.Println(schema_page)
 
 	page_no := 1
-	for 100+page_size*page_no < len(cnt) {
+	for 100+header.pageSize*page_no < len(cnt) {
 		page_no++
-		fmt.Println("-------------------------------")
-		page := procPage(cnt, page_no, page_size)
+		//fmt.Println("-------------------------------")
+		page := procPage(cnt, page_no, header.pageSize)
 		pp.Println(page)
 	}
 
