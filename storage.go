@@ -8,8 +8,6 @@ import (
 	"math"
 	"os"
 	"strconv"
-
-	"github.com/k0kubun/pp"
 )
 
 /***********************************************************
@@ -48,7 +46,7 @@ func fetchInt(bytes []byte, offset, size int) int {
 	return toInt(bytes[offset : offset+size])
 }
 
-func procPage(cnt []byte, page_num, page_size int) *Page {
+func parsePage(cnt []byte, page_num, page_size int) *Page {
 	page := &Page{}
 
 	offset := page_size * (page_num - 1)
@@ -140,7 +138,7 @@ func procPage(cnt []byte, page_num, page_size int) *Page {
 		total := int(i)
 
 		dataShift := header_size
-		row := Row{rowid: rowid, datas: []Data{}}
+		row := &Row{rowid: rowid, datas: []*Data{}}
 		for header_size > total {
 			//fmt.Println(">", header_size, total)
 			v, i = decodeVarint(payload_bytes[total:])
@@ -157,7 +155,7 @@ func procPage(cnt []byte, page_num, page_size int) *Page {
 			d := takeData(payload_bytes[dataShift:], serialType)
 
 			row.datas = append(row.datas, d)
-			dataShift += len(d.bytes)
+			dataShift += len(d.Bytes)
 		}
 
 		page.rows = append(page.rows, row)
@@ -178,15 +176,15 @@ type Page struct {
 	child         *Page
 
 	// serialTypes []int // Fail in case of "blob" or "text"
-	rows []Row
+	rows []*Row
 }
 
 type Row struct {
 	rowid uint64
-	datas []Data
+	datas []*Data
 }
 
-func takeData(bytes []byte, serialType int) Data {
+func takeData(bytes []byte, serialType int) *Data {
 	var size int
 	if serialType == 0 {
 		size = 0
@@ -243,8 +241,11 @@ func takeData(bytes []byte, serialType int) Data {
 		value = string(bs)
 	}
 
-	//return Data{serialType: serialType, bytes: bs, value: value}, size
-	return Data{serialType: serialType, bytes: bs, value: value}
+	return &Data{
+		SerialType: serialType,
+		Bytes:      bs,
+		Value:      value,
+	}
 }
 
 func or(i int, ns []int) bool {
@@ -257,38 +258,9 @@ func or(i int, ns []int) bool {
 }
 
 type Data struct {
-	serialType int
-	bytes      []byte
-	value      string
-}
-
-type Storage struct {
-	filepath string
-	bytes    []byte
-	pos      uint
-}
-
-func LoadSqlite(path string) (*Storage, error) {
-	file, err := os.Open(path)
-	defer file.Close()
-	if err != nil {
-		return nil, err
-	}
-
-	bytes, err := ioutil.ReadAll(file)
-	if err != nil {
-		return nil, err
-	}
-	fmt.Println(bytes)
-
-	//return &Storage{path, bytes, 0}, nil
-	return &Storage{}, nil
-}
-
-func (s *Storage) take(n uint) []byte {
-	i := s.pos
-	s.pos += n
-	return s.bytes[i : i+n]
+	SerialType int
+	Bytes      []byte
+	Value      string
 }
 
 type Header struct {
@@ -318,49 +290,96 @@ type Header struct {
 	sqlNum       int
 }
 
-func Load(path string) {
+func parseHeader(bytes []byte) *Header {
+	return &Header{
+		headerString:   string(bytes[0:16]),
+		pageSize:       fetchInt(bytes, 16, 2),
+		writeVersion:   fetchInt(bytes, 18, 1),
+		readVersion:    fetchInt(bytes, 19, 1),
+		reservedSize:   fetchInt(bytes, 20, 1),
+		payloadMax:     fetchInt(bytes, 21, 1),
+		payloadMin:     fetchInt(bytes, 22, 1),
+		payloadLeaf:    fetchInt(bytes, 23, 1),
+		changeCounter:  fetchInt(bytes, 24, 4),
+		inHeaderDbSize: fetchInt(bytes, 28, 4),
+		freeTrunk1st:   fetchInt(bytes, 32, 4),
+		totalFree:      fetchInt(bytes, 36, 4),
+		schemaCookie:   fetchInt(bytes, 40, 4),
+		schemaNumber:   fetchInt(bytes, 44, 4),
+		cacheSize:      fetchInt(bytes, 48, 4),
+		logest:         fetchInt(bytes, 52, 4),
+		encoding:       fetchInt(bytes, 56, 4),
+		userVersion:    fetchInt(bytes, 60, 4),
+		vacuumMode:     fetchInt(bytes, 64, 4),
+		appId:          fetchInt(bytes, 68, 4),
+		reserved:       fetchInt(bytes, 72, 20),
+		vvfNum:         fetchInt(bytes, 92, 4),
+		sqlNum:         fetchInt(bytes, 96, 4),
+	}
+}
+
+type Storage struct {
+	Path string
+
+	Header *Header
+	Pages  []*Page
+	Tables map[string]*Table
+}
+
+type Entry struct {
+	Datas []*Data
+}
+
+type Table struct {
+	Entries []*Entry
+}
+
+func makeTable(rows []*Row) *Table {
+	table := &Table{}
+
+	for _, i := range rows {
+		table.Entries = append(table.Entries, &Entry{i.datas})
+	}
+
+	return table
+}
+
+func makeTables(pages []*Page) map[string]*Table {
+	m := map[string]*Table{}
+
+	// CREATE TABLE sqlite_master ( type text, name text, tbl_name text, rootpage integer, sql text);
+	m["sqlite_master"] = makeTable(pages[0].rows)
+
+	for _, v := range pages[0].rows {
+		tableName := v.datas[2].Value
+		rootPage, _ := strconv.Atoi(v.datas[3].Value)
+		rows := []*Row{}
+
+		for _, r := range pages[rootPage-1].rows {
+			rows = append([]*Row{r}, rows...)
+		}
+		//sort.Sort(sort.Reverse(sort.IntSlice(rows)))
+		//m[tableName] = makeTable(pages[rootPage-1].rows)
+		m[tableName] = makeTable(rows)
+	}
+
+	return m
+}
+
+func Load(path string) (*Storage, error) {
 
 	file, err := os.Open(path)
-	//file, err := os.Open("test.db")
-	//file, err := os.Open("wc.db")
-	//file, err := os.Open("root.wc.db")
 	defer file.Close()
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	cnt, err := ioutil.ReadAll(file)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
-	header := Header{
-		headerString:   string(cnt[0:16]),
-		pageSize:       fetchInt(cnt, 16, 2),
-		writeVersion:   fetchInt(cnt, 18, 1),
-		readVersion:    fetchInt(cnt, 19, 1),
-		reservedSize:   fetchInt(cnt, 20, 1),
-		payloadMax:     fetchInt(cnt, 21, 1),
-		payloadMin:     fetchInt(cnt, 22, 1),
-		payloadLeaf:    fetchInt(cnt, 23, 1),
-		changeCounter:  fetchInt(cnt, 24, 4),
-		inHeaderDbSize: fetchInt(cnt, 28, 4),
-		freeTrunk1st:   fetchInt(cnt, 32, 4),
-		totalFree:      fetchInt(cnt, 36, 4),
-		schemaCookie:   fetchInt(cnt, 40, 4),
-		schemaNumber:   fetchInt(cnt, 44, 4),
-		cacheSize:      fetchInt(cnt, 48, 4),
-		logest:         fetchInt(cnt, 52, 4),
-		encoding:       fetchInt(cnt, 56, 4),
-		userVersion:    fetchInt(cnt, 60, 4),
-		vacuumMode:     fetchInt(cnt, 64, 4),
-		appId:          fetchInt(cnt, 68, 4),
-		reserved:       fetchInt(cnt, 72, 20),
-		vvfNum:         fetchInt(cnt, 92, 4),
-		sqlNum:         fetchInt(cnt, 96, 4),
-	}
-
-	pp.Println(header)
+	header := parseHeader(cnt)
 
 	/*
 		fmt.Println()
@@ -373,16 +392,22 @@ func Load(path string) {
 		}
 	*/
 
-	//load_size := 100
-	schema_page := procPage(cnt, 1, header.pageSize)
-	pp.Println(schema_page)
+	//schemaPage := parsePage(cnt, 1, header.pageSize)
+	//pp.Println(schemaPage)
 
-	page_no := 1
-	for 100+header.pageSize*page_no < len(cnt) {
+	pages := []*Page{}
+	page_no := 0
+	for header.pageSize*page_no < len(cnt) {
 		page_no++
-		//fmt.Println("-------------------------------")
-		page := procPage(cnt, page_no, header.pageSize)
-		pp.Println(page)
+		page := parsePage(cnt, page_no, header.pageSize)
+		//pp.Println(page)
+		pages = append(pages, page)
 	}
 
+	return &Storage{
+		Path:   path,
+		Header: header,
+		Pages:  pages,
+		Tables: makeTables(pages),
+	}, nil
 }

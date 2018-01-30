@@ -1,17 +1,17 @@
-package sqlite3utils
+package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"testing"
 
-	"github.com/stretchr/testify/assert"
+	sqlite3utils "github.com/kawakami-o3/go-sqlite3-utils"
 )
 
 func execSQLite(filename string, queries []string) {
-	script, _ := filepath.Abs("./script/sqlite.rb")
+	script, _ := filepath.Abs("../../script/sqlite.rb")
 	escape := regexp.MustCompile(`'`)
 	for _, q := range queries {
 		q = escape.ReplaceAllString(q, "\\'")
@@ -35,7 +35,7 @@ func rmSQLite(filename string) {
 	}
 }
 
-func TestSimpleLoad(t *testing.T) {
+func main() {
 	filename := "/tmp/test.db"
 	rmSQLite(filename)
 
@@ -46,13 +46,19 @@ func TestSimpleLoad(t *testing.T) {
 		"INSERT INTO person VALUES (3, \"bar\");",
 	})
 
-	pages, _ := Load(filename)
-	assert.Equal(t, pages.Tables["person"].Entries[0].Datas[0].Value, "1", "Should be same")
-	assert.Equal(t, pages.Tables["person"].Entries[0].Datas[1].Value, "hoge", "Should be same")
-	assert.Equal(t, pages.Tables["person"].Entries[1].Datas[0].Value, "2", "Should be same")
-	assert.Equal(t, pages.Tables["person"].Entries[1].Datas[1].Value, "foo", "Should be same")
-	assert.Equal(t, pages.Tables["person"].Entries[2].Datas[0].Value, "3", "Should be same")
-	assert.Equal(t, pages.Tables["person"].Entries[2].Datas[1].Value, "bar", "Should be same")
+	pages, _ := sqlite3utils.Load(filename)
+	fmt.Print(pages.Tables["person"].Entries[0].Datas[0].Value)
+	fmt.Print("|")
+	fmt.Print(pages.Tables["person"].Entries[0].Datas[1].Value)
+	fmt.Println()
+	fmt.Print(pages.Tables["person"].Entries[1].Datas[0].Value)
+	fmt.Print("|")
+	fmt.Print(pages.Tables["person"].Entries[1].Datas[1].Value)
+	fmt.Println()
+	fmt.Print(pages.Tables["person"].Entries[2].Datas[0].Value)
+	fmt.Print("|")
+	fmt.Print(pages.Tables["person"].Entries[2].Datas[1].Value)
+	fmt.Println()
 
 	rmSQLite(filename)
 }
