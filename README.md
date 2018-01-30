@@ -1,5 +1,5 @@
 # go-sqlite-utils
-Libraries for manipulating a SQLite file.
+Pure GO Libraries for manipulating a SQLite file.
 
 ## Installation
 
