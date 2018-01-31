@@ -1,4 +1,6 @@
 # go-sqlite-utils
+[![Build Status](https://travis-ci.org/kawakami-o3/go-sqlite3-utils.svg?branch=master)](https://travis-ci.org/kawakami-o3/go-sqlite3-utils)
+
 Pure GO Libraries for manipulating a SQLite file.
 
 ## Installation
