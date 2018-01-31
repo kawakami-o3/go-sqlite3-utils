@@ -62,10 +62,10 @@ func parsePage(cnt []byte, page_num, page_size int) *Page {
 
 	page.pageType = toInt(fetch(cnt, offset, 1))
 	if page.pageType == 0 {
-		fmt.Println("[%d]WARN: empty page", page_num)
+		fmt.Printf("[%d]WARN: empty page\n", page_num)
 		return page // empty
 	} else if page.pageType != 13 {
-		fmt.Println("[%d]WARN: Not yet implemented. pageType=%d", page_num, page.pageType)
+		fmt.Printf("[%d]WARN: Not yet implemented. pageType=%d\n", page_num, page.pageType)
 		return page
 	}
 	page.freeBlock = toInt(fetch(cnt, offset+1, 2))
