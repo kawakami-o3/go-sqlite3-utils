@@ -37,19 +37,18 @@ func toInt(bytes []byte) int {
 func fetch(bytes []byte, offset, size int) []byte {
 	if size == 0 {
 		return bytes[offset:]
-	} else {
-		return bytes[offset : offset+size]
 	}
+	return bytes[offset : offset+size]
 }
 
 func fetchInt(bytes []byte, offset, size int) int {
 	return toInt(bytes[offset : offset+size])
 }
 
-func parsePage(cnt []byte, page_num, page_size int) *Page {
+func parsePage(cnt []byte, pageNum, pageSize int) *Page {
 	page := &Page{}
 
-	offset := page_size * (page_num - 1)
+	offset := pageSize * (pageNum - 1)
 	if offset == 0 {
 		offset = 100 // database header in the first page
 	}
@@ -62,10 +61,10 @@ func parsePage(cnt []byte, page_num, page_size int) *Page {
 
 	page.pageType = toInt(fetch(cnt, offset, 1))
 	if page.pageType == 0 {
-		fmt.Printf("[%d]WARN: empty page\n", page_num)
+		fmt.Printf("[%d]WARN: empty page\n", pageNum)
 		return page // empty
 	} else if page.pageType != 13 {
-		fmt.Printf("[%d]WARN: Not yet implemented. pageType=%d\n", page_num, page.pageType)
+		fmt.Printf("[%d]WARN: Not yet implemented. pageType=%d\n", pageNum, page.pageType)
 		return page
 	}
 	page.freeBlock = toInt(fetch(cnt, offset+1, 2))
@@ -100,71 +99,65 @@ func parsePage(cnt []byte, page_num, page_size int) *Page {
 	page.cellPtrOffset = toInt(fetch(cnt, cellPtrOffset, 2))
 
 	// In case of type=13 ...
-	//fmt.Println()
-	cellOffset := page.startCellPtr + page_size*(page_num-1)
-	//fmt.Printf("Cell Content[Offset=%d]\n", cellOffset)
-	//fmt.Println(fetch(cnt, cellOffset, page_size+offset-cellOffset+10))
+	cellOffset := page.startCellPtr + pageSize*(pageNum-1)
 
-	//rest_size := page_size - page["start_cell"]
-
-	//row_count := 0
 	for row := 0; row < page.cellCount; row++ {
 
 		var v uint64
 		var i uint
 		delta := 0
-		payload_size := 0
+		payloadSize := 0
 
 		v, i = decodeVarint(fetch(cnt, cellOffset, 8))
 		delta += int(i)
-		payload_size = int(v)
+		payloadSize = int(v)
 
 		v, i = decodeVarint(fetch(cnt, cellOffset+delta, 8))
 		delta += int(i)
 		rowid := v
 
-		if cellOffset+payload_size > page_num*page_size {
+		if cellOffset+payloadSize > pageNum*pageSize {
 			fmt.Println("Need to check an overflow page. (exp, act) = ",
-				cellOffset+payload_size, page_num*page_size, payload_size)
+				cellOffset+payloadSize, pageNum*pageSize, payloadSize)
 			return nil
 		}
 
-		payload_bytes := fetch(cnt, cellOffset+delta, payload_size)
+		payloadBytes := fetch(cnt, cellOffset+delta, payloadSize)
 
-		v, i = decodeVarint(payload_bytes)
-		header_size := int(v)
+		v, i = decodeVarint(payloadBytes)
+		headerSize := int(v)
 
-		header_ints := []uint64{}
+		headerInts := []uint64{}
 		total := int(i)
 
-		dataShift := header_size
+		dataShift := headerSize
 		row := &Row{rowid: rowid, datas: []*Data{}}
-		for header_size > total {
-			//fmt.Println(">", header_size, total)
-			v, i = decodeVarint(payload_bytes[total:])
+		for headerSize > total {
+			v, i = decodeVarint(payloadBytes[total:])
 			if i == 0 {
 				fmt.Println("internal error")
 				return nil
 			}
 			total += int(i)
 
-			header_ints = append(header_ints, v)
+			headerInts = append(headerInts, v)
 
 			serialType := int(v)
 
-			d := takeData(payload_bytes[dataShift:], serialType)
+			d := takeData(payloadBytes[dataShift:], serialType)
 
 			row.datas = append(row.datas, d)
 			dataShift += len(d.Bytes)
 		}
 
 		page.rows = append(page.rows, row)
-		cellOffset += payload_size + delta
+		cellOffset += payloadSize + delta
 	}
 
 	return page
 }
 
+// Page ...
 type Page struct {
 	pageType      int
 	freeBlock     int
@@ -179,6 +172,7 @@ type Page struct {
 	rows []*Row
 }
 
+// Row ...
 type Row struct {
 	rowid uint64
 	datas []*Data
@@ -257,12 +251,14 @@ func or(i int, ns []int) bool {
 	return false
 }
 
+// Data ...
 type Data struct {
 	SerialType int
 	Bytes      []byte
 	Value      string
 }
 
+// Header ...
 type Header struct {
 	headerString   string
 	pageSize       int
@@ -284,7 +280,7 @@ type Header struct {
 	encoding     int
 	userVersion  int
 	vacuumMode   int
-	appId        int
+	appID        int
 	reserved     int
 	vvfNum       int
 	sqlNum       int
@@ -311,13 +307,14 @@ func parseHeader(bytes []byte) *Header {
 		encoding:       fetchInt(bytes, 56, 4),
 		userVersion:    fetchInt(bytes, 60, 4),
 		vacuumMode:     fetchInt(bytes, 64, 4),
-		appId:          fetchInt(bytes, 68, 4),
+		appID:          fetchInt(bytes, 68, 4),
 		reserved:       fetchInt(bytes, 72, 20),
 		vvfNum:         fetchInt(bytes, 92, 4),
 		sqlNum:         fetchInt(bytes, 96, 4),
 	}
 }
 
+// Storage ...
 type Storage struct {
 	Path string
 
@@ -326,10 +323,12 @@ type Storage struct {
 	Tables map[string]*Table
 }
 
+// Entry ...
 type Entry struct {
 	Datas []*Data
 }
 
+// Table ...
 type Table struct {
 	Entries []*Entry
 }
@@ -366,6 +365,7 @@ func makeTables(pages []*Page) map[string]*Table {
 	return m
 }
 
+// Load ...
 func Load(path string) (*Storage, error) {
 
 	file, err := os.Open(path)
@@ -396,10 +396,10 @@ func Load(path string) (*Storage, error) {
 	//pp.Println(schemaPage)
 
 	pages := []*Page{}
-	page_no := 0
-	for header.pageSize*page_no < len(cnt) {
-		page_no++
-		page := parsePage(cnt, page_no, header.pageSize)
+	pageNo := 0
+	for header.pageSize*pageNo < len(cnt) {
+		pageNo++
+		page := parsePage(cnt, pageNo, header.pageSize)
 		//pp.Println(page)
 		pages = append(pages, page)
 	}

@@ -39,15 +39,12 @@ func decodeVarint(bytes []byte) (uint64, uint) {
 		return 240 + 256*(v-241) + uint64(bytes[1]), 2
 	} else if v == 249 {
 		return 2288 + 256*uint64(bytes[1]) + uint64(bytes[2]), 3
-		//} else if v == 250 {
-	} else {
-		ret := uint64(0)
-		for i := uint64(0); i < v-247; i++ {
-			ret = 256*ret + uint64(bytes[i+1])
-		}
-		return ret, uint(v - 247)
 	}
-
+	ret := uint64(0)
+	for i := uint64(0); i < v-247; i++ {
+		ret = 256*ret + uint64(bytes[i+1])
+	}
+	return ret, uint(v - 247)
 }
 
 func encodeVarint(v uint64) []byte {
