@@ -44,7 +44,6 @@ func decodeVarint(bytes []byte) (uint64, uint) {
 			a := uint64(i)
 			consume++
 			v = (v << 7) | (a & 0x7f)
-			fmt.Println(v)
 
 			if a < 0x80 {
 				break
