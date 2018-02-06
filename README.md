@@ -1,5 +1,7 @@
 # go-sqlite-utils
-Pure GO Libraries for manipulating a SQLite file.
+[![Build Status](https://travis-ci.org/kawakami-o3/go-sqlite3-utils.svg?branch=master)](https://travis-ci.org/kawakami-o3/go-sqlite3-utils)
+
+Pure Go Libraries for manipulating a SQLite file.
 
 ## Installation
 
@@ -23,7 +25,8 @@ pages.Tables["person"].Entries[0].Datas[0].Value
 
 ## Todo
 
+* Complicated file (v0.0 can parse a very simple case only)
 * Overflow page
 * Schema parser
 * Index page
-* writer
+* Writer
