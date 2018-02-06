@@ -1,4 +1,5 @@
 # go-sqlite-utils
+[![Go Report Card](https://goreportcard.com/badge/github.com/kawakami-o3/go-sqlite3-utils)](https://goreportcard.com/report/github.com/kawakami-o3/go-sqlite3-utils)
 [![Build Status](https://travis-ci.org/kawakami-o3/go-sqlite3-utils.svg?branch=master)](https://travis-ci.org/kawakami-o3/go-sqlite3-utils)
 
 Pure Go Libraries for manipulating a SQLite file.
