@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/k0kubun/pp"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -62,8 +61,9 @@ func TestSimpleLoad(t *testing.T) {
 func TestSvn(t *testing.T) {
 	filename := "/home/vagrant/wc.db"
 
-	pages, _ := Load(filename)
-	pp.Println(pages)
+	Load(filename)
+	//pages, _ := Load(filename)
+	//pp.Println(pages)
 
 }
 
@@ -81,8 +81,9 @@ func TestOverflow(t *testing.T) {
 
 	//execSQLite(filename, cmd)
 
-	pages, _ := Load(filename)
-	pp.Print(pages.Header)
+	Load(filename)
+	//pages, _ := Load(filename)
+	//pp.Print(pages.Header)
 	//pp.Print(pages)
 
 	//rmSQLite(filename)
