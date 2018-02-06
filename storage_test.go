@@ -1,12 +1,14 @@
 package sqlite3utils
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"testing"
 
+	"github.com/k0kubun/pp"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -55,4 +57,33 @@ func TestSimpleLoad(t *testing.T) {
 	assert.Equal(t, pages.Tables["person"].Entries[2].Datas[1].Value, "bar", "Should be same")
 
 	rmSQLite(filename)
+}
+
+func TestSvn(t *testing.T) {
+	filename := "/home/vagrant/wc.db"
+
+	pages, _ := Load(filename)
+	pp.Println(pages)
+
+}
+
+func TestOverflow(t *testing.T) {
+	filename := "/tmp/test.db"
+	//rmSQLite(filename)
+
+	cmd := []string{"CREATE TABLE person(id integer, name text);"}
+
+	//for i := 0; i < 4096; i++ {
+	//for i := 0; i < 128; i++ {
+	for i := 1; i < 129; i++ {
+		cmd = append(cmd, fmt.Sprintf("INSERT INTO person VALUES (%d, \"abc\");", i))
+	}
+
+	//execSQLite(filename, cmd)
+
+	pages, _ := Load(filename)
+	pp.Print(pages.Header)
+	//pp.Print(pages)
+
+	//rmSQLite(filename)
 }

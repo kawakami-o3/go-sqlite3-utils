@@ -1,5 +1,7 @@
 package sqlite3utils
 
+import "fmt"
+
 func toBigEndian(v uint64) []byte {
 	if v == 0 {
 		return []byte{0}
@@ -26,6 +28,75 @@ func toUint64(v uint64) []byte {
 	return ret
 }
 
+// sqlite3/src/util.c:825
+func decodeVarint(bytes []byte) (uint64, uint) {
+	if len(bytes) == 0 {
+		return 0, 0
+	}
+
+	v := uint64(bytes[0])
+	consume := uint(1)
+
+	if v >= 0x80 {
+		v &= 0x7f
+
+		for _, i := range bytes[1:] {
+			a := uint64(i)
+			consume++
+			v = (v << 7) | (a & 0x7f)
+			fmt.Println(v)
+
+			if a < 0x80 {
+				break
+			}
+		}
+	}
+	return v, consume
+}
+
+// sqlite3/src/util.c:759
+func encodeVarint(v uint64) []byte {
+	if v <= 0x7f {
+		return []byte{byte(v & 0x7f)}
+	}
+	if v <= 0x3fff {
+		return []byte{
+			byte(((v >> 7) & 0x7f) | 0x80),
+			byte(v & 0x7f),
+		}
+	}
+
+	if (v & (0xff000000 << 32)) != 0 {
+		ret := []byte{byte(v)}
+		v >>= 8
+		for i := 7; i >= 0; i-- {
+			ret = append([]byte{byte((v & 0x7f) | 0x80)}, ret...)
+			v >>= 7
+		}
+		return ret
+	}
+
+	buf := []byte{}
+	for {
+		buf = append(buf, byte((v&0x7f)|0x80))
+		v >>= 7
+		if v == 0 {
+			break
+		}
+	}
+	buf[0] &= 0x7f
+
+	ret := make([]byte, len(buf))
+	i := 0
+	for j := len(buf) - 1; j >= 0; j-- {
+		ret[i] = buf[j]
+		i++
+	}
+	return ret
+}
+
+/*
+// https://sqlite.org/src4/doc/trunk/www/varint.wiki
 func decodeVarint(bytes []byte) (uint64, uint) {
 	if len(bytes) == 0 {
 		return 0, 0
@@ -41,14 +112,14 @@ func decodeVarint(bytes []byte) (uint64, uint) {
 		return 2288 + 256*uint64(bytes[1]) + uint64(bytes[2]), 3
 	}
 	ret := uint64(0)
+	//fmt.Println(">>>", len(bytes), v-247, v)
 	for i := uint64(0); i < v-247; i++ {
-		ret = 256*ret + uint64(bytes[i+1])
+		ret = 256*ret + uint64(bytes[i])
 	}
 	return ret, uint(v - 247)
 }
 
 func encodeVarint(v uint64) []byte {
-
 	if v <= 240 {
 		return []byte{byte(v)}
 	} else if v <= 2287 {
@@ -70,3 +141,4 @@ func encodeVarint(v uint64) []byte {
 	}
 
 }
+*/

@@ -2,13 +2,24 @@ package sqlite3utils
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 
 	"io/ioutil"
 	"math"
 	"os"
 	"strconv"
+
+	"github.com/k0kubun/pp"
 )
+
+func warn(msg ...interface{}) {
+	fmt.Println(append([]interface{}{"[WARN]"}, msg...)...)
+}
+
+func debug(msg ...interface{}) {
+	//fmt.Println(msg...)
+}
 
 /***********************************************************
 
@@ -45,6 +56,128 @@ func fetchInt(bytes []byte, offset, size int) int {
 	return toInt(bytes[offset : offset+size])
 }
 
+func parseIndexInteriorTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
+	debug("index interiror")
+	return page
+}
+func parseIndexLeafTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
+	debug("index leaf")
+	return page
+}
+
+func parseInteriorTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
+	/*
+		Table B-Tree Interior Cell (header 0x05):
+			* A 4-byte big-endian page number which is the left child pointer.
+			* A varint which is the integer key
+	*/
+	cellOffset := page.startCellPtr + pageSize*(pageNum-1)
+	pageEnd := pageSize * pageNum
+
+	for row := 0; row < page.cellCount; row++ {
+		debug("...", row)
+		childPageNumber := toInt(fetch(bytes, cellOffset, 4))
+		cellOffset += 4
+		rowid, n := decodeVarint(fetch(bytes, cellOffset, 0))
+		cellOffset += int(n)
+
+		page.rows = append(page.rows, &Row{
+			rowid: rowid,
+			//datas: []*Data{},
+			childPageNumber: childPageNumber,
+		})
+	}
+
+	debug(bytes[cellOffset:pageEnd])
+
+	return page
+}
+
+func parseLeafTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
+	// In case of type=13 ...
+	/*
+		Table B-Tree Leaf Cell (header 0x0d):
+		* A varint which is the total number of bytes of payload, including any overflow
+		* A varint which is the integer key, a.k.a. "rowid"
+		* The initial portion of the payload that does not spill to overflow pages.
+		* A 4-byte big-endian integer page number for the first page of
+			the overflow page list - omitted if all payload fits on the b-tree page.
+	*/
+	cellOffset := page.startCellPtr + pageSize*(pageNum-1)
+
+	for row := 0; row < page.cellCount; row++ {
+
+		var v uint64
+		var i uint
+		delta := 0
+		payloadSize := 0
+
+		v, i = decodeVarint(fetch(bytes, cellOffset, 8))
+		delta += int(i)
+		payloadSize = int(v)
+		debug("payload size:", payloadSize, i, fetch(bytes, cellOffset, payloadSize+4))
+
+		v, i = decodeVarint(fetch(bytes, cellOffset+delta, 8))
+		delta += int(i)
+		rowid := v
+
+		debug("rowId:", rowid, i)
+		if cellOffset+delta+payloadSize > pageNum*pageSize {
+			warn("Need to check an overflow page. (exp, act) = ",
+				cellOffset+payloadSize, pageNum*pageSize, payloadSize)
+			return nil
+		}
+
+		//payloadBytes := fetch(bytes, cellOffset+delta, payloadSize)
+		payloadBytes := fetch(bytes, cellOffset+delta, payloadSize)
+
+		v, i = decodeVarint(payloadBytes)
+		headerSize := int(v)
+
+		//headerInts := []uint64{}
+		total := int(i)
+
+		dataShift := headerSize
+		row := &Row{rowid: rowid, datas: []*Data{}}
+		debug("total vs headerSize", total, headerSize)
+		for total < headerSize {
+			v, i = decodeVarint(payloadBytes[total:])
+			if i == 0 {
+				warn("internal error")
+				return nil
+			}
+			total += int(i)
+
+			//headerInts = append(headerInts, v)
+
+			serialType := int(v)
+
+			debug(len(payloadBytes), dataShift)
+			if len(payloadBytes) < dataShift {
+				warn("dataShift too large", len(payloadBytes), dataShift)
+				debug(pageNum, pageSize)
+				return page // TODO fix
+			}
+			d, err := takeData(fetch(payloadBytes, dataShift, 0), serialType)
+			if err != nil {
+				warn(err)
+				return page // TODO fix
+			}
+
+			//pp.Println(d)
+			row.datas = append(row.datas, d)
+			dataShift += len(d.Bytes)
+		}
+
+		page.rows = append(page.rows, row)
+		//pp.Print(row)
+		debug("offset:", payloadSize, delta)
+		cellOffset += payloadSize + delta
+	}
+
+	return page
+}
+
 func parsePage(cnt []byte, pageNum, pageSize int) *Page {
 	page := &Page{}
 
@@ -63,9 +196,6 @@ func parsePage(cnt []byte, pageNum, pageSize int) *Page {
 	if page.pageType == 0 {
 		fmt.Printf("[%d]WARN: empty page\n", pageNum)
 		return page // empty
-	} else if page.pageType != 13 {
-		fmt.Printf("[%d]WARN: Not yet implemented. pageType=%d\n", pageNum, page.pageType)
-		return page
 	}
 	page.freeBlock = toInt(fetch(cnt, offset+1, 2))
 	page.cellCount = toInt(fetch(cnt, offset+3, 2))
@@ -90,70 +220,53 @@ func parsePage(cnt []byte, pageNum, pageSize int) *Page {
 			5. The cell content area
 			6. The reserved region.
 	*/
-	/*
-		free block
-			| 1   | 2    | 3          | 4              | ...     |
-			| next block | block size including header | empty   |
-	*/
 
 	page.cellPtrOffset = toInt(fetch(cnt, cellPtrOffset, 2))
-
-	// In case of type=13 ...
-	cellOffset := page.startCellPtr + pageSize*(pageNum-1)
-
-	for row := 0; row < page.cellCount; row++ {
-
-		var v uint64
-		var i uint
-		delta := 0
-		payloadSize := 0
-
-		v, i = decodeVarint(fetch(cnt, cellOffset, 8))
-		delta += int(i)
-		payloadSize = int(v)
-
-		v, i = decodeVarint(fetch(cnt, cellOffset+delta, 8))
-		delta += int(i)
-		rowid := v
-
-		if cellOffset+payloadSize > pageNum*pageSize {
-			fmt.Println("Need to check an overflow page. (exp, act) = ",
-				cellOffset+payloadSize, pageNum*pageSize, payloadSize)
-			return nil
+	/*
+		if page.cellPtrOffset > page.freeBlock && page.freeBlock != 0 {
+			fmt.Printf("[%d]WARN: free blocks before cells\n", pageNum)
 		}
+	*/
 
-		payloadBytes := fetch(cnt, cellOffset+delta, payloadSize)
+	/*
+		// bytes: content witout free blocks
+		freeBlockPtr := offset + page.freeBlock
+		bytes := cnt[0:freeBlockPtr]
+		//pp.Println(page)
+		for 0 < freeBlockPtr-offset {
+			// free block
+			//  | 1   | 2    | 3          | 4              | ...     |
+			//  | next block | block size including header | empty   |
 
-		v, i = decodeVarint(payloadBytes)
-		headerSize := int(v)
+			nextFreeBlockPtr := offset + toInt(fetch(cnt, freeBlockPtr, 2))
+			freeBlockSize := toInt(fetch(cnt, freeBlockPtr+2, 2))
 
-		headerInts := []uint64{}
-		total := int(i)
-
-		dataShift := headerSize
-		row := &Row{rowid: rowid, datas: []*Data{}}
-		for headerSize > total {
-			v, i = decodeVarint(payloadBytes[total:])
-			if i == 0 {
-				fmt.Println("internal error")
-				return nil
+			if nextFreeBlockPtr == offset {
+				bytes = append(bytes, cnt[freeBlockPtr+freeBlockSize:offset+pageSize]...)
+			} else {
+				bytes = append(bytes, cnt[freeBlockPtr+freeBlockSize:nextFreeBlockPtr]...)
 			}
-			total += int(i)
 
-			headerInts = append(headerInts, v)
-
-			serialType := int(v)
-
-			d := takeData(payloadBytes[dataShift:], serialType)
-
-			row.datas = append(row.datas, d)
-			dataShift += len(d.Bytes)
+			freeBlockPtr = nextFreeBlockPtr
 		}
+	*/
 
-		page.rows = append(page.rows, row)
-		cellOffset += payloadSize + delta
+	page.printHeader()
+	//pageEnd = pageNum * pageSize
+	//debug(bytes[pageEnd-ZZ
+	if page.freeBlock > 0 {
+		return page // TODO fix: avoid the crash for the page including a free block
 	}
 
+	if page.pageType == 5 {
+		parseInteriorTablePage(page, cnt, pageNum, pageSize)
+	} else if page.pageType == 13 {
+		parseLeafTablePage(page, cnt, pageNum, pageSize)
+	} else if page.pageType == 2 {
+		parseIndexInteriorTablePage(page, cnt, pageNum, pageSize)
+	} else if page.pageType == 10 {
+		parseIndexLeafTablePage(page, cnt, pageNum, pageSize)
+	}
 	return page
 }
 
@@ -172,13 +285,27 @@ type Page struct {
 	rows []*Row
 }
 
+func (page *Page) printHeader() {
+	debug("==================================")
+	debug("pageType:", page.pageType)
+	debug("freeBlock:", page.freeBlock)
+	debug("cellCount:", page.cellCount)
+	debug("CellPtr:", page.startCellPtr)
+	debug("fragment:", page.fragmentBytes)
+	debug("rightPtr:", page.rightPtr)
+	debug("cellOffset:", page.cellPtrOffset)
+	debug("==================================")
+}
+
 // Row ...
 type Row struct {
 	rowid uint64
-	datas []*Data
+
+	datas           []*Data // in a leaf table
+	childPageNumber int     // 4-byte integer in an interior table
 }
 
-func takeData(bytes []byte, serialType int) *Data {
+func takeData(bytes []byte, serialType int) (*Data, error) {
 	var size int
 	if serialType == 0 {
 		size = 0
@@ -206,8 +333,14 @@ func takeData(bytes []byte, serialType int) *Data {
 		size = 0
 	} else if serialType%2 == 0 {
 		size = (serialType - 12) / 2
-	} else { // odd
+	} else if serialType%2 == 1 {
 		size = (serialType - 13) / 2
+	} else {
+		return nil, errors.New("Unkown serialType")
+	}
+
+	if len(bytes) < size {
+		return nil, errors.New(fmt.Sprintf("no enough bytes! [%d < %d]\n", len(bytes), size))
 	}
 
 	bs := bytes[0:size]
@@ -226,9 +359,13 @@ func takeData(bytes []byte, serialType int) *Data {
 	} else if serialType == 9 {
 		value = "1"
 	} else if serialType%2 == 0 {
-		value = "[" + strconv.Itoa(int(bs[0]))
-		for _, b := range bs[1:] {
-			value += "," + strconv.Itoa(int(b))
+		debug(serialType, bs)
+		value = "["
+		for i, b := range bs {
+			if i > 0 {
+				value += ","
+			}
+			value += strconv.Itoa(int(b))
 		}
 		value += "]"
 	} else {
@@ -239,7 +376,8 @@ func takeData(bytes []byte, serialType int) *Data {
 		SerialType: serialType,
 		Bytes:      bs,
 		Value:      value,
-	}
+		Len:        len(bs),
+	}, nil
 }
 
 func or(i int, ns []int) bool {
@@ -256,6 +394,7 @@ type Data struct {
 	SerialType int
 	Bytes      []byte
 	Value      string
+	Len        int
 }
 
 // Header ...
@@ -345,6 +484,7 @@ func makeTable(rows []*Row) *Table {
 
 func makeTables(pages []*Page) map[string]*Table {
 	m := map[string]*Table{}
+	return m // TODO fix
 
 	// CREATE TABLE sqlite_master ( type text, name text, tbl_name text, rootpage integer, sql text);
 	m["sqlite_master"] = makeTable(pages[0].rows)
@@ -402,6 +542,8 @@ func Load(path string) (*Storage, error) {
 		page := parsePage(cnt, pageNo, header.pageSize)
 		//pp.Println(page)
 		pages = append(pages, page)
+
+		//break // TODO delete
 	}
 
 	return &Storage{
