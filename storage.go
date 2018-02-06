@@ -15,6 +15,10 @@ func warn(msg ...interface{}) {
 	fmt.Println(append([]interface{}{"[WARN]"}, msg...)...)
 }
 
+func debugPp(msg ...interface{}) {
+	//pp.Print(msg)
+}
+
 func debug(msg ...interface{}) {
 	//fmt.Println(msg...)
 }
@@ -86,7 +90,8 @@ func parseInteriorTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Pa
 		})
 	}
 
-	debug(bytes[cellOffset:pageEnd])
+	debug("cellOffset, pageEnd", cellOffset, pageEnd)
+	//debug(bytes[cellOffset:pageEnd])
 
 	return page
 }
@@ -150,10 +155,9 @@ func parseLeafTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
 
 			serialType := int(v)
 
-			debug(len(payloadBytes), dataShift)
+			debug("payloadBytes, dataShift", len(payloadBytes), dataShift)
 			if len(payloadBytes) < dataShift {
 				warn("dataShift too large", len(payloadBytes), dataShift)
-				debug(pageNum, pageSize)
 				return page // TODO fix
 			}
 			d, err := takeData(fetch(payloadBytes, dataShift, 0), serialType)
@@ -338,7 +342,7 @@ func takeData(bytes []byte, serialType int) (*Data, error) {
 	}
 
 	if len(bytes) < size {
-		return nil, errors.New(fmt.Sprintf("no enough bytes! [%d < %d]\n", len(bytes), size))
+		return nil, fmt.Errorf("no enough bytes! [%d < %d]\n", len(bytes), size)
 	}
 
 	bs := bytes[0:size]
@@ -357,13 +361,17 @@ func takeData(bytes []byte, serialType int) (*Data, error) {
 	} else if serialType == 9 {
 		value = "1"
 	} else if serialType%2 == 0 {
-		debug(serialType, bs)
+		debug("blob: type, len = ", serialType, len(bs))
 		value = "["
 		for i, b := range bs {
 			if i > 0 {
 				value += ","
 			}
 			value += strconv.Itoa(int(b))
+			if i > 8 {
+				value += "..."
+				break
+			}
 		}
 		value += "]"
 	} else {

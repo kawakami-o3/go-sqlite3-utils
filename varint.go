@@ -1,7 +1,5 @@
 package sqlite3utils
 
-import "fmt"
-
 func toBigEndian(v uint64) []byte {
 	if v == 0 {
 		return []byte{0}
