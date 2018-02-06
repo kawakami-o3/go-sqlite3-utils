@@ -9,8 +9,6 @@ import (
 	"math"
 	"os"
 	"strconv"
-
-	"github.com/k0kubun/pp"
 )
 
 func warn(msg ...interface{}) {
