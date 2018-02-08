@@ -9,6 +9,15 @@ import (
 	"math"
 	"os"
 	"strconv"
+
+	"github.com/k0kubun/pp"
+)
+
+const (
+	InteriorIndex = 2  // 0x02
+	InteriorTable = 5  // 0x05
+	LeafIndex     = 10 // 0x0a
+	LeafTable     = 13 // 0x0d
 )
 
 func warn(msg ...interface{}) {
@@ -16,11 +25,11 @@ func warn(msg ...interface{}) {
 }
 
 func debugPp(msg ...interface{}) {
-	//pp.Print(msg)
+	pp.Println(msg)
 }
 
 func debug(msg ...interface{}) {
-	//fmt.Println(msg...)
+	fmt.Println(msg...)
 }
 
 /***********************************************************
@@ -58,12 +67,12 @@ func fetchInt(bytes []byte, offset, size int) int {
 	return toInt(bytes[offset : offset+size])
 }
 
-func parseIndexInteriorTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
-	debug("index interiror")
+func parseInteriorIndexPage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
+	debug("index interiror [id]:", page.pageNum)
 	return page
 }
-func parseIndexLeafTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
-	debug("index leaf")
+func parseLeafIndexPage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
+	debug("index leaf [id]:", page.pageNum)
 	return page
 }
 
@@ -77,10 +86,14 @@ func parseInteriorTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Pa
 	pageEnd := pageSize * pageNum
 
 	for row := 0; row < page.cellCount; row++ {
-		debug("...", row)
+		debug("row...", row)
+		debug("debug:", string(bytes[0:16]))
+		debug("debug:", fetch(bytes, cellOffset, 8))
 		childPageNumber := toInt(fetch(bytes, cellOffset, 4))
 		cellOffset += 4
-		rowid, n := decodeVarint(fetch(bytes, cellOffset, 0))
+		rowid, n := decodeVarint(fetch(bytes, cellOffset, 8))
+
+		debug("rowid, childPageNumber:", rowid, childPageNumber, fetch(bytes, cellOffset-10, 8+10), cellOffset)
 		cellOffset += int(n)
 
 		page.rows = append(page.rows, &Row{
@@ -109,22 +122,24 @@ func parseLeafTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
 	cellOffset := page.startCellPtr + pageSize*(pageNum-1)
 
 	for row := 0; row < page.cellCount; row++ {
+		debug("***********************************", cellOffset)
 
 		var v uint64
 		var i uint
 		delta := 0
 		payloadSize := 0
 
-		v, i = decodeVarint(fetch(bytes, cellOffset, 8))
+		v, i = decodeVarint32(fetch(bytes, cellOffset, 8))
 		delta += int(i)
 		payloadSize = int(v)
-		debug("payload size:", payloadSize, i, fetch(bytes, cellOffset, payloadSize+4))
+		//debug("payload size:", payloadSize, i, fetch(bytes, cellOffset, payloadSize+4))
+		debug("payload size:", payloadSize, i, fetch(bytes, cellOffset, payloadSize), fetch(bytes, cellOffset+payloadSize, 4))
 
 		v, i = decodeVarint(fetch(bytes, cellOffset+delta, 8))
 		delta += int(i)
 		rowid := v
 
-		debug("rowId:", rowid, i)
+		debug("rowid:", rowid, i)
 		if cellOffset+delta+payloadSize > pageNum*pageSize {
 			warn("Need to check an overflow page. (exp, act) = ",
 				cellOffset+payloadSize, pageNum*pageSize, payloadSize)
@@ -155,15 +170,15 @@ func parseLeafTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
 
 			serialType := int(v)
 
-			debug("payloadBytes, dataShift", len(payloadBytes), dataShift)
 			if len(payloadBytes) < dataShift {
-				warn("dataShift too large", len(payloadBytes), dataShift)
-				return page // TODO fix
+				warn("[", page.pageNum, "]", "dataShift too large", len(payloadBytes), dataShift)
+				//debugPp(page)
+				//return page // TODO fix
 			}
 			d, err := takeData(fetch(payloadBytes, dataShift, 0), serialType)
 			if err != nil {
 				warn(err)
-				return page // TODO fix
+				//return page // TODO fix
 			}
 
 			//pp.Println(d)
@@ -172,7 +187,6 @@ func parseLeafTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
 		}
 
 		page.rows = append(page.rows, row)
-		//pp.Print(row)
 		debug("offset:", payloadSize, delta)
 		cellOffset += payloadSize + delta
 	}
@@ -181,7 +195,10 @@ func parseLeafTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
 }
 
 func parsePage(cnt []byte, pageNum, pageSize int) *Page {
-	page := &Page{}
+	page := &Page{
+		children: make(map[int]*Page),
+	}
+	page.pageNum = pageNum
 
 	offset := pageSize * (pageNum - 1)
 	if offset == 0 {
@@ -230,50 +247,52 @@ func parsePage(cnt []byte, pageNum, pageSize int) *Page {
 		}
 	*/
 
-	/*
-		// bytes: content witout free blocks
-		freeBlockPtr := offset + page.freeBlock
-		bytes := cnt[0:freeBlockPtr]
-		//pp.Println(page)
-		for 0 < freeBlockPtr-offset {
-			// free block
-			//  | 1   | 2    | 3          | 4              | ...     |
-			//  | next block | block size including header | empty   |
+	// bytes: content witout free blocks
+	freeBlockPtr := offset + page.freeBlock
+	bytes := cnt[0:freeBlockPtr]
+	for 0 < freeBlockPtr-offset {
+		// free block
+		//  | 1   | 2    | 3          | 4              | ...     |
+		//  | next block | block size including header | empty   |
 
-			nextFreeBlockPtr := offset + toInt(fetch(cnt, freeBlockPtr, 2))
-			freeBlockSize := toInt(fetch(cnt, freeBlockPtr+2, 2))
+		nextFreeBlockPtr := offset + toInt(fetch(cnt, freeBlockPtr, 2))
+		freeBlockSize := toInt(fetch(cnt, freeBlockPtr+2, 2))
 
-			if nextFreeBlockPtr == offset {
-				bytes = append(bytes, cnt[freeBlockPtr+freeBlockSize:offset+pageSize]...)
-			} else {
-				bytes = append(bytes, cnt[freeBlockPtr+freeBlockSize:nextFreeBlockPtr]...)
-			}
-
-			freeBlockPtr = nextFreeBlockPtr
+		if nextFreeBlockPtr == offset {
+			bytes = append(bytes, cnt[freeBlockPtr+freeBlockSize:offset+pageSize]...)
+		} else {
+			bytes = append(bytes, cnt[freeBlockPtr+freeBlockSize:nextFreeBlockPtr]...)
 		}
-	*/
+
+		freeBlockPtr = nextFreeBlockPtr
+	}
 
 	page.printHeader()
 	//pageEnd = pageNum * pageSize
 	//debug(bytes[pageEnd-ZZ
-	if page.freeBlock > 0 {
-		return page // TODO fix: avoid the crash for the page including a free block
+	/*
+		if page.freeBlock > 0 {
+			return page // TODO fix: avoid the crash for the page including a free block
+		}
+	*/
+
+	if page.pageType == InteriorTable {
+		parseInteriorTablePage(page, cnt, pageNum, pageSize)
+	} else if page.pageType == LeafTable {
+		parseLeafTablePage(page, cnt, pageNum, pageSize)
+	} else if page.pageType == InteriorIndex {
+		parseInteriorIndexPage(page, cnt, pageNum, pageSize)
+	} else if page.pageType == LeafIndex {
+		parseLeafIndexPage(page, cnt, pageNum, pageSize)
 	}
 
-	if page.pageType == 5 {
-		parseInteriorTablePage(page, cnt, pageNum, pageSize)
-	} else if page.pageType == 13 {
-		parseLeafTablePage(page, cnt, pageNum, pageSize)
-	} else if page.pageType == 2 {
-		parseIndexInteriorTablePage(page, cnt, pageNum, pageSize)
-	} else if page.pageType == 10 {
-		parseIndexLeafTablePage(page, cnt, pageNum, pageSize)
-	}
+	debugPp(page)
 	return page
 }
 
 // Page ...
 type Page struct {
+	pageNum       int
 	pageType      int
 	freeBlock     int
 	cellCount     int
@@ -281,7 +300,7 @@ type Page struct {
 	fragmentBytes int
 	rightPtr      int
 	cellPtrOffset int
-	child         *Page
+	children      map[int]*Page
 
 	// serialTypes []int // Fail in case of "blob" or "text"
 	rows []*Row
@@ -289,6 +308,7 @@ type Page struct {
 
 func (page *Page) printHeader() {
 	debug("==================================")
+	debug("pageNum:", page.pageNum)
 	debug("pageType:", page.pageType)
 	debug("freeBlock:", page.freeBlock)
 	debug("cellCount:", page.cellCount)
@@ -299,12 +319,24 @@ func (page *Page) printHeader() {
 	debug("==================================")
 }
 
+func (page *Page) selectFirstChild(pages []*Page) *Page {
+	number := page.rows[0].childPageNumber
+	if number <= 0 {
+		number = page.rightPtr
+	}
+	if number <= 0 {
+		panic("selectFirstChild: no child")
+	}
+	return pages[number-1]
+}
+
 // Row ...
 type Row struct {
 	rowid uint64
 
-	datas           []*Data // in a leaf table
-	childPageNumber int     // 4-byte integer in an interior table
+	datas []*Data // in a leaf table
+
+	childPageNumber int // 4-byte integer in an interior table
 }
 
 func takeData(bytes []byte, serialType int) (*Data, error) {
@@ -478,34 +510,77 @@ type Table struct {
 	Entries []*Entry
 }
 
-func makeTable(rows []*Row) *Table {
+func makeTable(pages []*Page) *Table {
 	table := &Table{}
 
-	for _, i := range rows {
-		table.Entries = append(table.Entries, &Entry{i.datas})
+	for _, p := range pages {
+		for _, i := range p.rows {
+			table.Entries = append(table.Entries, &Entry{i.datas})
+		}
 	}
 
 	return table
 }
 
+func fillChildren(pages []*Page) {
+	for _, page := range pages {
+		if page.rightPtr != 0 {
+			page.children[page.rightPtr] = pages[page.rightPtr-1]
+		}
+
+		if page.pageType == InteriorTable {
+			for _, r := range page.rows {
+				number := r.childPageNumber
+				page.children[number] = pages[number-1]
+			}
+		}
+	}
+}
+
+func selectFirstLeafTable(pages ...*Page) *Page {
+	page := pages[0]
+	for page.pageType != LeafTable {
+		page = page.selectFirstChild(pages)
+	}
+	return page
+}
+
 func makeTables(pages []*Page) map[string]*Table {
 	m := map[string]*Table{}
-	return m // TODO fix
 
 	// CREATE TABLE sqlite_master ( type text, name text, tbl_name text, rootpage integer, sql text);
-	m["sqlite_master"] = makeTable(pages[0].rows)
 
-	for _, v := range pages[0].rows {
-		tableName := v.datas[2].Value
-		rootPage, _ := strconv.Atoi(v.datas[3].Value)
-		rows := []*Row{}
+	masterPages := []*Page{}
 
-		for _, r := range pages[rootPage-1].rows {
-			rows = append([]*Row{r}, rows...)
+	firstPageType := pages[0].pageType
+	if firstPageType == LeafTable {
+		masterPages = append(masterPages, pages[0])
+	} else if firstPageType == InteriorTable {
+		for _, page := range pages[0].children {
+			masterPages = append(masterPages, page)
 		}
+	} else {
+		panic("!!!")
+	}
+
+	m["sqlite_master"] = makeTable(masterPages)
+
+	for _, v := range m["sqlite_master"].Entries {
+		tableName := v.Datas[2].Value
+		rootPage, _ := strconv.Atoi(v.Datas[3].Value)
+		/*
+			rows := []*Row{}
+
+			for _, r := range pages[rootPage-1].rows {
+				rows = append([]*Row{r}, rows...)
+			}
+		*/
 		//sort.Sort(sort.Reverse(sort.IntSlice(rows)))
 		//m[tableName] = makeTable(pages[rootPage-1].rows)
-		m[tableName] = makeTable(rows)
+		//debug("pages length, rootPage:", len(pages), rootPage)
+		if rootPage != 0 {
+			m[tableName] = makeTable([]*Page{pages[rootPage-1]})
+		}
 	}
 
 	return m
@@ -551,6 +626,8 @@ func Load(path string) (*Storage, error) {
 
 		//break // TODO delete
 	}
+
+	fillChildren(pages)
 
 	return &Storage{
 		Path:   path,

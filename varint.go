@@ -1,5 +1,7 @@
 package sqlite3utils
 
+import "fmt"
+
 func toBigEndian(v uint64) []byte {
 	if v == 0 {
 		return []byte{0}
@@ -26,24 +28,53 @@ func toUint64(v uint64) []byte {
 	return ret
 }
 
-// sqlite3/src/util.c:825
-func decodeVarint(bytes []byte) (uint64, uint) {
-	if len(bytes) == 0 {
-		return 0, 0
-	}
-
+func decodeVarint32(bytes []byte) (uint64, uint) {
+	fmt.Println(bytes)
 	v := uint64(bytes[0])
 	consume := uint(1)
-
+	consumeMax := uint(8)
 	if v >= 0x80 {
 		v &= 0x7f
 
-		for _, i := range bytes[1:] {
-			a := uint64(i)
-			consume++
+		for {
+			a := uint64(bytes[consume])
 			v = (v << 7) | (a & 0x7f)
+			consume++
+
+			if !(a >= 0x80 && consume < consumeMax) {
+				break
+			}
+		}
+	}
+	return v, consume
+
+}
+
+// sqlite3/src/util.c:825
+func decodeVarint(bytes []byte) (uint64, uint) {
+	v := uint64(bytes[0])
+	consume := uint(1)
+	consumeMax := uint(8)
+	//fmt.Println("varint>>", v, consume)
+
+	if v >= 0x80 {
+		v &= 0x7f
+		//fmt.Println("varint>>", v, consume)
+
+		for {
+			a := uint64(bytes[consume])
+			v = (v << 7) | (a & 0x7f)
+			//fmt.Println("varint>>", v, consume, a)
+			consume++
 
 			if a < 0x80 {
+				break
+			}
+			if consume >= consumeMax-1 {
+				a := uint64(bytes[consume])
+				v = (v << 8) | a
+				//fmt.Println("varint>>", v, consume, a)
+				consume++
 				break
 			}
 		}

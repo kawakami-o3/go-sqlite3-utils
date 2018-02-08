@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"testing"
 
+	"github.com/k0kubun/pp"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -59,11 +60,12 @@ func TestSimpleLoad(t *testing.T) {
 }
 
 func TestSvn(t *testing.T) {
+	//filename := "/home/vagrant/simple.wc.db"
 	filename := "/home/vagrant/wc.db"
 
-	Load(filename)
-	//pages, _ := Load(filename)
-	//pp.Println(pages)
+	//Load(filename)
+	pages, _ := Load(filename)
+	pp.Println(pages)
 
 }
 
