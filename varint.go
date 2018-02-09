@@ -1,7 +1,5 @@
 package sqlite3utils
 
-import "fmt"
-
 func toBigEndian(v uint64) []byte {
 	if v == 0 {
 		return []byte{0}
@@ -29,7 +27,6 @@ func toUint64(v uint64) []byte {
 }
 
 func decodeVarint32(bytes []byte) (uint64, uint) {
-	fmt.Println(bytes)
 	v := uint64(bytes[0])
 	consume := uint(1)
 	consumeMax := uint(8)

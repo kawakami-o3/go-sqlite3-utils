@@ -122,7 +122,7 @@ func parseLeafTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
 	cellOffset := page.startCellPtr + pageSize*(pageNum-1)
 
 	for row := 0; row < page.cellCount; row++ {
-		debug("***********************************", cellOffset)
+		//debug("***********************************", cellOffset)
 
 		var v uint64
 		var i uint
@@ -133,13 +133,13 @@ func parseLeafTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
 		delta += int(i)
 		payloadSize = int(v)
 		//debug("payload size:", payloadSize, i, fetch(bytes, cellOffset, payloadSize+4))
-		debug("payload size:", payloadSize, i, fetch(bytes, cellOffset, payloadSize), fetch(bytes, cellOffset+payloadSize, 4))
+		//debug("payload size:", payloadSize, i, fetch(bytes, cellOffset, payloadSize), fetch(bytes, cellOffset+payloadSize, 4))
 
 		v, i = decodeVarint(fetch(bytes, cellOffset+delta, 8))
-		delta += int(i)
 		rowid := v
+		debug("rowid:", rowid, i, cellOffset, delta, fetch(bytes, cellOffset+delta, 8), len(bytes))
+		delta += int(i)
 
-		debug("rowid:", rowid, i)
 		if cellOffset+delta+payloadSize > pageNum*pageSize {
 			warn("Need to check an overflow page. (exp, act) = ",
 				cellOffset+payloadSize, pageNum*pageSize, payloadSize)
@@ -157,7 +157,7 @@ func parseLeafTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
 
 		dataShift := headerSize
 		row := &Row{rowid: rowid, datas: []*Data{}}
-		debug("total vs headerSize", total, headerSize)
+		//debug("total vs headerSize", total, headerSize)
 		for total < headerSize {
 			v, i = decodeVarint(payloadBytes[total:])
 			if i == 0 {
@@ -187,7 +187,7 @@ func parseLeafTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
 		}
 
 		page.rows = append(page.rows, row)
-		debug("offset:", payloadSize, delta)
+		//debug("offset:", payloadSize, delta)
 		cellOffset += payloadSize + delta
 	}
 
@@ -248,26 +248,33 @@ func parsePage(cnt []byte, pageNum, pageSize int) *Page {
 	*/
 
 	// bytes: content witout free blocks
-	freeBlockPtr := offset + page.freeBlock
-	bytes := cnt[0:freeBlockPtr]
-	for 0 < freeBlockPtr-offset {
-		// free block
-		//  | 1   | 2    | 3          | 4              | ...     |
-		//  | next block | block size including header | empty   |
+	bytes := make([]byte, 0)
 
-		nextFreeBlockPtr := offset + toInt(fetch(cnt, freeBlockPtr, 2))
-		freeBlockSize := toInt(fetch(cnt, freeBlockPtr+2, 2))
+	if page.freeBlock == 0 {
+		bytes = append(bytes, cnt...)
+	} else {
+		freeBlockPtr := offset + page.freeBlock
+		bytes = append(bytes, cnt[0:freeBlockPtr]...)
+		for 0 < freeBlockPtr-offset {
+			// free block
+			//  | 1   | 2    | 3          | 4              | ...     |
+			//  | next block | block size including header | empty   |
 
-		if nextFreeBlockPtr == offset {
-			bytes = append(bytes, cnt[freeBlockPtr+freeBlockSize:offset+pageSize]...)
-		} else {
-			bytes = append(bytes, cnt[freeBlockPtr+freeBlockSize:nextFreeBlockPtr]...)
+			nextFreeBlockPtr := offset + toInt(fetch(cnt, freeBlockPtr, 2))
+			freeBlockSize := toInt(fetch(cnt, freeBlockPtr+2, 2))
+
+			if nextFreeBlockPtr == offset {
+				bytes = append(bytes, cnt[freeBlockPtr+freeBlockSize:offset+pageSize]...)
+			} else {
+				bytes = append(bytes, cnt[freeBlockPtr+freeBlockSize:nextFreeBlockPtr]...)
+			}
+
+			freeBlockPtr = nextFreeBlockPtr
 		}
-
-		freeBlockPtr = nextFreeBlockPtr
 	}
 
 	page.printHeader()
+
 	//pageEnd = pageNum * pageSize
 	//debug(bytes[pageEnd-ZZ
 	/*
@@ -276,17 +283,29 @@ func parsePage(cnt []byte, pageNum, pageSize int) *Page {
 		}
 	*/
 
+	/*
+		if page.pageType == InteriorTable {
+			parseInteriorTablePage(page, cnt, pageNum, pageSize)
+		} else if page.pageType == LeafTable {
+			parseLeafTablePage(page, cnt, pageNum, pageSize)
+		} else if page.pageType == InteriorIndex {
+			parseInteriorIndexPage(page, cnt, pageNum, pageSize)
+		} else if page.pageType == LeafIndex {
+			parseLeafIndexPage(page, cnt, pageNum, pageSize)
+		}
+	*/
+
 	if page.pageType == InteriorTable {
-		parseInteriorTablePage(page, cnt, pageNum, pageSize)
+		parseInteriorTablePage(page, bytes, pageNum, pageSize)
 	} else if page.pageType == LeafTable {
-		parseLeafTablePage(page, cnt, pageNum, pageSize)
+		parseLeafTablePage(page, bytes, pageNum, pageSize)
 	} else if page.pageType == InteriorIndex {
-		parseInteriorIndexPage(page, cnt, pageNum, pageSize)
+		parseInteriorIndexPage(page, bytes, pageNum, pageSize)
 	} else if page.pageType == LeafIndex {
-		parseLeafIndexPage(page, cnt, pageNum, pageSize)
+		parseLeafIndexPage(page, bytes, pageNum, pageSize)
 	}
 
-	debugPp(page)
+	//debugPp(page)
 	return page
 }
 
@@ -393,7 +412,7 @@ func takeData(bytes []byte, serialType int) (*Data, error) {
 	} else if serialType == 9 {
 		value = "1"
 	} else if serialType%2 == 0 {
-		debug("blob: type, len = ", serialType, len(bs))
+		//debug("blob: type, len = ", serialType, len(bs))
 		value = "["
 		for i, b := range bs {
 			if i > 0 {
