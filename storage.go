@@ -9,8 +9,6 @@ import (
 	"math"
 	"os"
 	"strconv"
-
-	"github.com/k0kubun/pp"
 )
 
 const (
@@ -25,11 +23,11 @@ func warn(msg ...interface{}) {
 }
 
 func debugPp(msg ...interface{}) {
-	pp.Println(msg)
+	//pp.Println(msg)
 }
 
 func debug(msg ...interface{}) {
-	fmt.Println(msg...)
+	//fmt.Println(msg...)
 }
 
 /***********************************************************
@@ -133,11 +131,11 @@ func parseLeafTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
 		delta += int(i)
 		payloadSize = int(v)
 		//debug("payload size:", payloadSize, i, fetch(bytes, cellOffset, payloadSize+4))
-		//debug("payload size:", payloadSize, i, fetch(bytes, cellOffset, payloadSize), fetch(bytes, cellOffset+payloadSize, 4))
+		debug("payld:", payloadSize, i, fetch(bytes, cellOffset, 8))
 
 		v, i = decodeVarint(fetch(bytes, cellOffset+delta, 8))
 		rowid := v
-		debug("rowid:", rowid, i, cellOffset, delta, fetch(bytes, cellOffset+delta, 8), len(bytes))
+		//debug("rowid:", rowid, i, cellOffset, delta, fetch(bytes, cellOffset+delta, 8), len(bytes))
 		delta += int(i)
 
 		if cellOffset+delta+payloadSize > pageNum*pageSize {
@@ -181,7 +179,6 @@ func parseLeafTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
 				//return page // TODO fix
 			}
 
-			//pp.Println(d)
 			row.datas = append(row.datas, d)
 			dataShift += len(d.Bytes)
 		}
@@ -194,11 +191,12 @@ func parseLeafTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
 	return page
 }
 
-func parsePage(cnt []byte, pageNum, pageSize int) *Page {
+func parsePage(cnt []byte, pageNum, pageSize int, header *Header) *Page {
 	page := &Page{
+		pageNum:  pageNum,
 		children: make(map[int]*Page),
 	}
-	page.pageNum = pageNum
+	//page.pageNum = pageNum
 
 	offset := pageSize * (pageNum - 1)
 	if offset == 0 {
@@ -222,7 +220,7 @@ func parsePage(cnt []byte, pageNum, pageSize int) *Page {
 	if page.startCellPtr == 0 {
 		page.startCellPtr = 65536
 	}
-	page.fragmentBytes = toInt(fetch(cnt, offset+7, 1))
+	page.fragments = toInt(fetch(cnt, offset+7, 1))
 
 	cellPtrOffset := 8
 	if page.pageType == 5 {
@@ -241,15 +239,11 @@ func parsePage(cnt []byte, pageNum, pageSize int) *Page {
 	*/
 
 	page.cellPtrOffset = toInt(fetch(cnt, cellPtrOffset, 2))
-	/*
-		if page.cellPtrOffset > page.freeBlock && page.freeBlock != 0 {
-			fmt.Printf("[%d]WARN: free blocks before cells\n", pageNum)
-		}
-	*/
 
 	// bytes: content witout free blocks
 	bytes := make([]byte, 0)
 
+	nFragment := 0
 	if page.freeBlock == 0 {
 		bytes = append(bytes, cnt...)
 	} else {
@@ -270,10 +264,25 @@ func parsePage(cnt []byte, pageNum, pageSize int) *Page {
 			}
 
 			freeBlockPtr = nextFreeBlockPtr
+
+			nFragment++
 		}
 	}
 
 	page.printHeader()
+
+	//mn := header.minLocal
+	//n := mn + (page.cellCount-mn)%(header.usableSize-4)
+	/*
+		if page.cellCount > header.maxLocal {
+			panic("overflow")
+		}
+
+		if page.fragments != nFragment {
+			fmt.Println("fragment!!!", page.fragments, nFragment)
+			panic("")
+		}
+	*/
 
 	//pageEnd = pageNum * pageSize
 	//debug(bytes[pageEnd-ZZ
@@ -316,7 +325,7 @@ type Page struct {
 	freeBlock     int
 	cellCount     int
 	startCellPtr  int
-	fragmentBytes int
+	fragments     int
 	rightPtr      int
 	cellPtrOffset int
 	children      map[int]*Page
@@ -332,7 +341,7 @@ func (page *Page) printHeader() {
 	debug("freeBlock:", page.freeBlock)
 	debug("cellCount:", page.cellCount)
 	debug("CellPtr:", page.startCellPtr)
-	debug("fragment:", page.fragmentBytes)
+	debug("fragments:", page.fragments)
 	debug("rightPtr:", page.rightPtr)
 	debug("cellOffset:", page.cellPtrOffset)
 	debug("==================================")
@@ -480,10 +489,16 @@ type Header struct {
 	reserved     int
 	vvfNum       int
 	sqlNum       int
+
+	usableSize int
+	maxLocal   int
+	minLocal   int
+	maxLeaf    int
+	minLeaf    int
 }
 
 func parseHeader(bytes []byte) *Header {
-	return &Header{
+	header := &Header{
 		headerString:   string(bytes[0:16]),
 		pageSize:       fetchInt(bytes, 16, 2),
 		writeVersion:   fetchInt(bytes, 18, 1),
@@ -508,6 +523,15 @@ func parseHeader(bytes []byte) *Header {
 		vvfNum:         fetchInt(bytes, 92, 4),
 		sqlNum:         fetchInt(bytes, 96, 4),
 	}
+
+	usableSize := header.pageSize - header.reservedSize
+	header.usableSize = usableSize
+	header.maxLocal = (usableSize-12)*64/255 - 23
+	header.minLocal = (usableSize-12)*32/255 - 23
+	header.maxLeaf = usableSize - 35
+	header.minLeaf = (usableSize-12)*32/255 - 23
+
+	return header
 }
 
 // Storage ...
@@ -622,8 +646,6 @@ func Load(path string) (*Storage, error) {
 	header := parseHeader(cnt)
 
 	/*
-		fmt.Println()
-
 		// lock-byte  1073741823:1073742336
 		if 1073741824 > len(cnt) {
 			fmt.Println(1073741824, ">", len(cnt))
@@ -633,17 +655,13 @@ func Load(path string) (*Storage, error) {
 	*/
 
 	//schemaPage := parsePage(cnt, 1, header.pageSize)
-	//pp.Println(schemaPage)
 
 	pages := []*Page{}
 	pageNo := 0
 	for header.pageSize*pageNo < len(cnt) {
 		pageNo++
-		page := parsePage(cnt, pageNo, header.pageSize)
-		//pp.Println(page)
+		page := parsePage(cnt, pageNo, header.pageSize, header)
 		pages = append(pages, page)
-
-		//break // TODO delete
 	}
 
 	fillChildren(pages)
