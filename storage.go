@@ -27,7 +27,7 @@ func debugPp(msg ...interface{}) {
 }
 
 func debug(msg ...interface{}) {
-	//fmt.Println(msg...)
+	fmt.Println(msg...)
 }
 
 /***********************************************************
@@ -66,11 +66,138 @@ func fetchInt(bytes []byte, offset, size int) int {
 }
 
 func parseInteriorIndexPage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
-	debug("index interiror [id]:", page.pageNum)
+
+	cellOffset := page.startCellPtr + pageSize*(pageNum-1)
+
+	for row := 0; row < page.cellCount; row++ {
+		var v uint64
+		var i uint
+		delta := 0
+		payloadSize := 0
+
+		childPageNumber := toInt(fetch(bytes, cellOffset, 4))
+		delta += 4
+		debug("0x02:child:", childPageNumber, fetch(bytes, cellOffset, 4))
+
+		v, i = decodeVarint32(fetch(bytes, cellOffset+delta, 8))
+		delta += int(i)
+		payloadSize = int(v)
+		//debug("payload size:", payloadSize, i, fetch(bytes, cellOffset, payloadSize+4))
+		debug("0x02:payld:", payloadSize, i, fetch(bytes, cellOffset+delta, 8))
+
+		//payloadBytes := fetch(bytes, cellOffset+delta, payloadSize)
+		payloadBytes := fetch(bytes, cellOffset+delta, payloadSize)
+
+		v, i = decodeVarint(payloadBytes)
+		headerSize := int(v)
+
+		//headerInts := []uint64{}
+		total := int(i)
+
+		dataShift := headerSize
+		row := &Row{
+			childPageNumber: childPageNumber,
+			datas:           []*Data{},
+		}
+		//debug("total vs headerSize", total, headerSize)
+		for total < headerSize {
+			v, i = decodeVarint(payloadBytes[total:])
+			if i == 0 {
+				warn("internal error")
+				return nil
+			}
+			total += int(i)
+
+			//headerInts = append(headerInts, v)
+
+			serialType := int(v)
+
+			if len(payloadBytes) < dataShift {
+				warn("[", page.pageNum, "]", "dataShift too large", len(payloadBytes), dataShift)
+				//debugPp(page)
+				//return page // TODO fix
+			}
+			d, err := takeData(fetch(payloadBytes, dataShift, 0), serialType)
+			if err != nil {
+				warn(err)
+				//return page // TODO fix
+			}
+
+			row.datas = append(row.datas, d)
+			dataShift += len(d.Bytes)
+		}
+
+		page.rows = append(page.rows, row)
+		//debug("offset:", payloadSize, delta)
+		cellOffset += payloadSize + delta
+	}
+
 	return page
 }
+
 func parseLeafIndexPage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
-	debug("index leaf [id]:", page.pageNum)
+
+	cellOffset := page.startCellPtr + pageSize*(pageNum-1)
+
+	for row := 0; row < page.cellCount; row++ {
+
+		var v uint64
+		var i uint
+		delta := 0
+		payloadSize := 0
+
+		v, i = decodeVarint32(fetch(bytes, cellOffset, 8))
+		delta += int(i)
+		payloadSize = int(v)
+		//debug("payload size:", payloadSize, i, fetch(bytes, cellOffset, payloadSize+4))
+		debug("payld:", payloadSize, i, fetch(bytes, cellOffset, 8))
+
+		//payloadBytes := fetch(bytes, cellOffset+delta, payloadSize)
+		payloadBytes := fetch(bytes, cellOffset+delta, payloadSize)
+
+		v, i = decodeVarint(payloadBytes)
+		headerSize := int(v)
+
+		//headerInts := []uint64{}
+		total := int(i)
+
+		dataShift := headerSize
+		row := &Row{
+			datas: []*Data{},
+		}
+		//debug("total vs headerSize", total, headerSize)
+		for total < headerSize {
+			v, i = decodeVarint(payloadBytes[total:])
+			if i == 0 {
+				warn("internal error")
+				return nil
+			}
+			total += int(i)
+
+			//headerInts = append(headerInts, v)
+
+			serialType := int(v)
+
+			if len(payloadBytes) < dataShift {
+				warn("[", page.pageNum, "]", "dataShift too large", len(payloadBytes), dataShift)
+				//debugPp(page)
+				//return page // TODO fix
+			}
+			d, err := takeData(fetch(payloadBytes, dataShift, 0), serialType)
+			if err != nil {
+				warn(err)
+				//return page // TODO fix
+			}
+
+			row.datas = append(row.datas, d)
+			dataShift += len(d.Bytes)
+		}
+
+		page.rows = append(page.rows, row)
+		//debug("offset:", payloadSize, delta)
+		cellOffset += payloadSize + delta
+	}
+
 	return page
 }
 
