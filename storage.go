@@ -9,6 +9,8 @@ import (
 	"math"
 	"os"
 	"strconv"
+
+	u "github.com/kawakami-o3/undergo"
 )
 
 const (
@@ -27,7 +29,7 @@ func debugPp(msg ...interface{}) {
 }
 
 func debug(msg ...interface{}) {
-	fmt.Println(msg...)
+	//fmt.Println(msg...)
 }
 
 /***********************************************************
@@ -67,9 +69,10 @@ func fetchInt(bytes []byte, offset, size int) int {
 
 func parseInteriorIndexPage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
 
-	cellOffset := page.startCellPtr + pageSize*(pageNum-1)
+	pageOffset := pageSize * (pageNum - 1)
+	for _, cellPtr := range page.cellPtrs {
+		cellOffset := cellPtr + pageOffset
 
-	for row := 0; row < page.cellCount; row++ {
 		var v uint64
 		var i uint
 		delta := 0
@@ -77,6 +80,7 @@ func parseInteriorIndexPage(page *Page, bytes []byte, pageNum, pageSize int) *Pa
 
 		childPageNumber := toInt(fetch(bytes, cellOffset, 4))
 		delta += 4
+		debug("0x02:offset:", u.S16(cellOffset), page.startCellPtr, u.S16(pageSize*(pageNum-1)))
 		debug("0x02:child:", childPageNumber, fetch(bytes, cellOffset, 4))
 
 		v, i = decodeVarint32(fetch(bytes, cellOffset+delta, 8))
@@ -137,9 +141,9 @@ func parseInteriorIndexPage(page *Page, bytes []byte, pageNum, pageSize int) *Pa
 
 func parseLeafIndexPage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
 
-	cellOffset := page.startCellPtr + pageSize*(pageNum-1)
-
-	for row := 0; row < page.cellCount; row++ {
+	pageOffset := pageSize * (pageNum - 1)
+	for _, cellPtr := range page.cellPtrs {
+		cellOffset := cellPtr + pageOffset
 
 		var v uint64
 		var i uint
@@ -207,13 +211,12 @@ func parseInteriorTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Pa
 			* A 4-byte big-endian page number which is the left child pointer.
 			* A varint which is the integer key
 	*/
-	cellOffset := page.startCellPtr + pageSize*(pageNum-1)
-	pageEnd := pageSize * pageNum
+	//pageEnd := pageSize * pageNum
 
-	for row := 0; row < page.cellCount; row++ {
-		debug("row...", row)
-		debug("debug:", string(bytes[0:16]))
-		debug("debug:", fetch(bytes, cellOffset, 8))
+	pageOffset := pageSize * (pageNum - 1)
+	for _, cellPtr := range page.cellPtrs {
+		cellOffset := cellPtr + pageOffset
+
 		childPageNumber := toInt(fetch(bytes, cellOffset, 4))
 		cellOffset += 4
 		rowid, n := decodeVarint(fetch(bytes, cellOffset, 8))
@@ -228,9 +231,6 @@ func parseInteriorTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Pa
 		})
 	}
 
-	debug("cellOffset, pageEnd", cellOffset, pageEnd)
-	//debug(bytes[cellOffset:pageEnd])
-
 	return page
 }
 
@@ -244,10 +244,10 @@ func parseLeafTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
 		* A 4-byte big-endian integer page number for the first page of
 			the overflow page list - omitted if all payload fits on the b-tree page.
 	*/
-	cellOffset := page.startCellPtr + pageSize*(pageNum-1)
 
-	for row := 0; row < page.cellCount; row++ {
-		//debug("***********************************", cellOffset)
+	pageOffset := pageSize * (pageNum - 1)
+	for _, cellPtr := range page.cellPtrs {
+		cellOffset := cellPtr + pageOffset
 
 		var v uint64
 		var i uint
@@ -349,10 +349,10 @@ func parsePage(cnt []byte, pageNum, pageSize int, header *Header) *Page {
 	}
 	page.fragments = toInt(fetch(cnt, offset+7, 1))
 
-	cellPtrOffset := 8
-	if page.pageType == 5 {
+	cellPtrOffset := offset + 8
+	if page.pageType == InteriorIndex || page.pageType == InteriorTable {
 		page.rightPtr = toInt(fetch(cnt, offset+8, 4))
-		cellPtrOffset = 12
+		cellPtrOffset = offset + 12
 	}
 	/*
 		A b-tree page is divided into regions in the following order:
@@ -365,36 +365,41 @@ func parsePage(cnt []byte, pageNum, pageSize int, header *Header) *Page {
 			6. The reserved region.
 	*/
 
-	page.cellPtrOffset = toInt(fetch(cnt, cellPtrOffset, 2))
+	page.cellPtrs = []int{}
+	for i := 0; i < page.cellCount; i++ {
+		page.cellPtrs = append(page.cellPtrs, toInt(fetch(cnt, cellPtrOffset+2*i, 2)))
+	}
 
 	// bytes: content witout free blocks
-	bytes := make([]byte, 0)
+	bytes := cnt
+	/*
+		bytes := make([]byte, 0)
+		nFragment := 0
+		if page.freeBlock == 0 {
+			bytes = append(bytes, cnt...)
+		} else {
+			freeBlockPtr := offset + page.freeBlock
+			bytes = append(bytes, cnt[0:freeBlockPtr]...)
+			for 0 < freeBlockPtr-offset {
+				// free block
+				//  | 1   | 2    | 3          | 4              | ...     |
+				//  | next block | block size including header | empty   |
 
-	nFragment := 0
-	if page.freeBlock == 0 {
-		bytes = append(bytes, cnt...)
-	} else {
-		freeBlockPtr := offset + page.freeBlock
-		bytes = append(bytes, cnt[0:freeBlockPtr]...)
-		for 0 < freeBlockPtr-offset {
-			// free block
-			//  | 1   | 2    | 3          | 4              | ...     |
-			//  | next block | block size including header | empty   |
+				nextFreeBlockPtr := offset + toInt(fetch(cnt, freeBlockPtr, 2))
+				freeBlockSize := toInt(fetch(cnt, freeBlockPtr+2, 2))
 
-			nextFreeBlockPtr := offset + toInt(fetch(cnt, freeBlockPtr, 2))
-			freeBlockSize := toInt(fetch(cnt, freeBlockPtr+2, 2))
+				if nextFreeBlockPtr == offset {
+					bytes = append(bytes, cnt[freeBlockPtr+freeBlockSize:offset+pageSize]...)
+				} else {
+					bytes = append(bytes, cnt[freeBlockPtr+freeBlockSize:nextFreeBlockPtr]...)
+				}
 
-			if nextFreeBlockPtr == offset {
-				bytes = append(bytes, cnt[freeBlockPtr+freeBlockSize:offset+pageSize]...)
-			} else {
-				bytes = append(bytes, cnt[freeBlockPtr+freeBlockSize:nextFreeBlockPtr]...)
+				freeBlockPtr = nextFreeBlockPtr
+
+				nFragment++
 			}
-
-			freeBlockPtr = nextFreeBlockPtr
-
-			nFragment++
 		}
-	}
+	*/
 
 	page.printHeader()
 
@@ -447,15 +452,16 @@ func parsePage(cnt []byte, pageNum, pageSize int, header *Header) *Page {
 
 // Page ...
 type Page struct {
-	pageNum       int
-	pageType      int
-	freeBlock     int
-	cellCount     int
-	startCellPtr  int
-	fragments     int
-	rightPtr      int
-	cellPtrOffset int
-	children      map[int]*Page
+	pageNum      int
+	pageType     int
+	freeBlock    int
+	cellCount    int
+	startCellPtr int
+	fragments    int
+	rightPtr     int
+	children     map[int]*Page
+
+	cellPtrs []int
 
 	// serialTypes []int // Fail in case of "blob" or "text"
 	rows []*Row
@@ -466,11 +472,12 @@ func (page *Page) printHeader() {
 	debug("pageNum:", page.pageNum)
 	debug("pageType:", page.pageType)
 	debug("freeBlock:", page.freeBlock)
-	debug("cellCount:", page.cellCount)
 	debug("CellPtr:", page.startCellPtr)
 	debug("fragments:", page.fragments)
 	debug("rightPtr:", page.rightPtr)
-	debug("cellOffset:", page.cellPtrOffset)
+	debug("cellCount:", page.cellCount)
+	debug("cellPtrs:")
+	debugPp(page.cellPtrs)
 	debug("==================================")
 }
 
