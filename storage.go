@@ -14,10 +14,10 @@ import (
 )
 
 const (
-	InteriorIndex = 2  // 0x02
-	InteriorTable = 5  // 0x05
-	LeafIndex     = 10 // 0x0a
-	LeafTable     = 13 // 0x0d
+	interiorIndex = 2  // 0x02
+	interiorTable = 5  // 0x05
+	leafIndex     = 10 // 0x0a
+	leafTable     = 13 // 0x0d
 )
 
 func warn(msg ...interface{}) {
@@ -350,7 +350,7 @@ func parsePage(cnt []byte, pageNum, pageSize int, header *Header) *Page {
 	page.fragments = toInt(fetch(cnt, offset+7, 1))
 
 	cellPtrOffset := offset + 8
-	if page.pageType == InteriorIndex || page.pageType == InteriorTable {
+	if page.pageType == interiorIndex || page.pageType == interiorTable {
 		page.rightPtr = toInt(fetch(cnt, offset+8, 4))
 		cellPtrOffset = offset + 12
 	}
@@ -436,13 +436,13 @@ func parsePage(cnt []byte, pageNum, pageSize int, header *Header) *Page {
 		}
 	*/
 
-	if page.pageType == InteriorTable {
+	if page.pageType == interiorTable {
 		parseInteriorTablePage(page, bytes, pageNum, pageSize)
-	} else if page.pageType == LeafTable {
+	} else if page.pageType == leafTable {
 		parseLeafTablePage(page, bytes, pageNum, pageSize)
-	} else if page.pageType == InteriorIndex {
+	} else if page.pageType == interiorIndex {
 		parseInteriorIndexPage(page, bytes, pageNum, pageSize)
-	} else if page.pageType == LeafIndex {
+	} else if page.pageType == leafIndex {
 		parseLeafIndexPage(page, bytes, pageNum, pageSize)
 	}
 
@@ -536,7 +536,7 @@ func takeData(bytes []byte, serialType int) (*Data, error) {
 	}
 
 	if len(bytes) < size {
-		return nil, fmt.Errorf("no enough bytes! [%d < %d]\n", len(bytes), size)
+		return nil, fmt.Errorf("No enough bytes! [%d < %d]\n", len(bytes), size)
 	}
 
 	bs := bytes[0:size]
@@ -705,7 +705,7 @@ func fillChildren(pages []*Page) {
 			page.children[page.rightPtr] = pages[page.rightPtr-1]
 		}
 
-		if page.pageType == InteriorTable {
+		if page.pageType == interiorTable {
 			for _, r := range page.rows {
 				number := r.childPageNumber
 				page.children[number] = pages[number-1]
@@ -716,7 +716,7 @@ func fillChildren(pages []*Page) {
 
 func selectFirstLeafTable(pages ...*Page) *Page {
 	page := pages[0]
-	for page.pageType != LeafTable {
+	for page.pageType != leafTable {
 		page = page.selectFirstChild(pages)
 	}
 	return page
@@ -730,9 +730,9 @@ func makeTables(pages []*Page) map[string]*Table {
 	masterPages := []*Page{}
 
 	firstPageType := pages[0].pageType
-	if firstPageType == LeafTable {
+	if firstPageType == leafTable {
 		masterPages = append(masterPages, pages[0])
-	} else if firstPageType == InteriorTable {
+	} else if firstPageType == interiorTable {
 		for _, page := range pages[0].children {
 			masterPages = append(masterPages, page)
 		}
