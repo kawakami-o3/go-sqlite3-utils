@@ -536,7 +536,7 @@ func takeData(bytes []byte, serialType int) (*Data, error) {
 	}
 
 	if len(bytes) < size {
-		return nil, fmt.Errorf("No enough bytes! [%d < %d]\n", len(bytes), size)
+		return nil, fmt.Errorf("No enough bytes! [%d < %d]", len(bytes), size)
 	}
 
 	bs := bytes[0:size]
