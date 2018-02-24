@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/k0kubun/pp"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -59,15 +58,18 @@ func TestSimpleLoad(t *testing.T) {
 	rmSQLite(filename)
 }
 
+/*
 func TestSvn(t *testing.T) {
 	//filename := "/home/vagrant/simple.wc.db"
-	filename := "/home/vagrant/wc.db"
+	//filename := "/home/vagrant/wc.db"
+	filename := "/Users/mikami/wc.db"
 
 	//Load(filename)
 	pages, _ := Load(filename)
 	pp.Println(pages)
 
 }
+*/
 
 func TestOverflow(t *testing.T) {
 	filename := "/tmp/test.db"
@@ -77,7 +79,7 @@ func TestOverflow(t *testing.T) {
 
 	//for i := 0; i < 4096; i++ {
 	//for i := 0; i < 128; i++ {
-	for i := 1; i < 129; i++ {
+	for i := 1; i < 10000000; i++ {
 		cmd = append(cmd, fmt.Sprintf("INSERT INTO person VALUES (%d, \"abc\");", i))
 	}
 
