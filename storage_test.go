@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"testing"
 
+	"github.com/k0kubun/pp"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -41,10 +42,10 @@ func TestSimpleLoad(t *testing.T) {
 	rmSQLite(filename)
 
 	execSQLite(filename, []string{
-		"CREATE TABLE person(id integer, name text);",
-		"INSERT INTO person VALUES (1, \"hoge\");",
-		"INSERT INTO person VALUES (2, \"foo\");",
-		"INSERT INTO person VALUES (3, \"bar\");",
+		"CREATE TABLE person(id integer, name text, hp integer);",
+		"INSERT INTO person VALUES (1, \"hoge\", 10);",
+		"INSERT INTO person VALUES (2, \"foo\", 100);",
+		"INSERT INTO person VALUES (3, \"bar\", 1000);",
 	})
 
 	pages, _ := Load(filename)
@@ -55,21 +56,21 @@ func TestSimpleLoad(t *testing.T) {
 	assert.Equal(t, pages.Tables["person"].Entries[2].Datas[0].Value, "3", "Should be same")
 	assert.Equal(t, pages.Tables["person"].Entries[2].Datas[1].Value, "bar", "Should be same")
 
+	pp.Println(pages.Tables["person"])
+
 	rmSQLite(filename)
 }
 
-/*
 func TestSvn(t *testing.T) {
 	//filename := "/home/vagrant/simple.wc.db"
-	//filename := "/home/vagrant/wc.db"
-	filename := "/Users/mikami/wc.db"
+	filename := "/home/vagrant/wc.db"
+	//filename := "/Users/mikami/wc.db"
 
-	//Load(filename)
-	pages, _ := Load(filename)
-	pp.Println(pages)
+	Load(filename)
+	//pages, _ := Load(filename)
+	//pp.Println(pages.Tables["NODES"])
 
 }
-*/
 
 func TestOverflow(t *testing.T) {
 	filename := "/tmp/test.db"

@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/k0kubun/pp"
 	u "github.com/kawakami-o3/undergo"
 )
 
@@ -741,6 +742,7 @@ func makeTables(pages []*Page) map[string]*Table {
 	}
 
 	m["sqlite_master"] = makeTable(masterPages)
+	//pp.Println(m["sqlite_master"])
 
 	for _, v := range m["sqlite_master"].Entries {
 		tableName := v.Datas[2].Value
@@ -752,11 +754,26 @@ func makeTables(pages []*Page) map[string]*Table {
 				rows = append([]*Row{r}, rows...)
 			}
 		*/
+
 		//sort.Sort(sort.Reverse(sort.IntSlice(rows)))
 		//m[tableName] = makeTable(pages[rootPage-1].rows)
 		//debug("pages length, rootPage:", len(pages), rootPage)
 		if rootPage != 0 {
-			m[tableName] = makeTable([]*Page{pages[rootPage-1]})
+
+			tablePages := []*Page{pages[rootPage-1]}
+			/*
+			for _, v := range pages[rootPage-1].children {
+				tablePages = append(tablePages, v)
+			}
+			*/
+			m[tableName] = makeTable(tablePages)
+			/*
+				if tableName == "NODES" {
+					//pp.Println(m[tableName])
+					pp.Println(len(pages[rootPage-1].children))
+				}
+			*/
+			//m[tableName] = makeTable([]*Page{pages[rootPage-1]})
 		}
 	}
 
