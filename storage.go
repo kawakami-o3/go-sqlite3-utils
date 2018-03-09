@@ -10,7 +10,6 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/k0kubun/pp"
 	u "github.com/kawakami-o3/undergo"
 )
 
@@ -120,12 +119,10 @@ func parseInteriorIndexPage(page *Page, bytes []byte, pageNum, pageSize int) *Pa
 			if len(payloadBytes) < dataShift {
 				warn("[", page.pageNum, "]", "dataShift too large", len(payloadBytes), dataShift)
 				//debugPp(page)
-				//return page // TODO fix
 			}
 			d, err := takeData(fetch(payloadBytes, dataShift, 0), serialType)
 			if err != nil {
 				warn(err)
-				//return page // TODO fix
 			}
 
 			row.datas = append(row.datas, d)
@@ -185,13 +182,10 @@ func parseLeafIndexPage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
 
 			if len(payloadBytes) < dataShift {
 				warn("[", page.pageNum, "]", "dataShift too large", len(payloadBytes), dataShift)
-				//debugPp(page)
-				//return page // TODO fix
 			}
 			d, err := takeData(fetch(payloadBytes, dataShift, 0), serialType)
 			if err != nil {
 				warn(err)
-				//return page // TODO fix
 			}
 
 			row.datas = append(row.datas, d)
@@ -723,6 +717,18 @@ func selectFirstLeafTable(pages ...*Page) *Page {
 	return page
 }
 
+func walkPage(page *Page, pageType int) []*Page {
+	//ret := []*Page{page}
+	ret := []*Page{}
+	if page.pageType == pageType {
+		ret = append(ret, page)
+	}
+	for _, p := range page.children {
+		ret = append(ret, walkPage(p, pageType)...)
+	}
+	return ret
+}
+
 func makeTables(pages []*Page) map[string]*Table {
 	m := map[string]*Table{}
 
@@ -746,35 +752,17 @@ func makeTables(pages []*Page) map[string]*Table {
 
 	for _, v := range m["sqlite_master"].Entries {
 		tableName := v.Datas[2].Value
-		rootPage, _ := strconv.Atoi(v.Datas[3].Value)
-		/*
-			rows := []*Row{}
+		rootPageNum, _ := strconv.Atoi(v.Datas[3].Value)
 
-			for _, r := range pages[rootPage-1].rows {
-				rows = append([]*Row{r}, rows...)
-			}
-		*/
-
-		//sort.Sort(sort.Reverse(sort.IntSlice(rows)))
-		//m[tableName] = makeTable(pages[rootPage-1].rows)
-		//debug("pages length, rootPage:", len(pages), rootPage)
-		if rootPage != 0 {
-
-			tablePages := []*Page{pages[rootPage-1]}
-			/*
-			for _, v := range pages[rootPage-1].children {
-				tablePages = append(tablePages, v)
-			}
-			*/
-			m[tableName] = makeTable(tablePages)
-			/*
-				if tableName == "NODES" {
-					//pp.Println(m[tableName])
-					pp.Println(len(pages[rootPage-1].children))
-				}
-			*/
-			//m[tableName] = makeTable([]*Page{pages[rootPage-1]})
+		if rootPageNum == 0 {
+			continue
 		}
+		rootPage := pages[rootPageNum-1]
+		if rootPage.pageType == 2 || rootPage.pageType == 10 {
+			continue
+		}
+
+		m[tableName] = makeTable(walkPage(rootPage, leafTable))
 	}
 
 	return m
