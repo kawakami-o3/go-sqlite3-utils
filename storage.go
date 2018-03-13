@@ -229,7 +229,7 @@ func parseInteriorTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Pa
 	return page
 }
 
-func parseLeafTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
+func parseLeafTablePage(page *Page, bytes []byte, pageNum, pageSize int) (*Page, error) {
 	// In case of type=13 ...
 	/*
 		Table B-Tree Leaf Cell (header 0x0d):
@@ -263,7 +263,9 @@ func parseLeafTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
 		if cellOffset+delta+payloadSize > pageNum*pageSize {
 			warn("Need to check an overflow page. (exp, act) = ",
 				cellOffset+payloadSize, pageNum*pageSize, payloadSize)
-			return nil
+
+			page.isOverflow = true
+			return page, nil
 		}
 
 		//payloadBytes := fetch(bytes, cellOffset+delta, payloadSize)
@@ -281,8 +283,7 @@ func parseLeafTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
 		for total < headerSize {
 			v, i = decodeVarint(payloadBytes[total:])
 			if i == 0 {
-				warn("internal error")
-				return nil
+				return nil, errors.New("internal error")
 			}
 			total += int(i)
 
@@ -310,7 +311,7 @@ func parseLeafTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
 		cellOffset += payloadSize + delta
 	}
 
-	return page
+	return page, nil
 }
 
 func parsePage(cnt []byte, pageNum, pageSize int, header *Header) *Page {
@@ -401,6 +402,8 @@ type Page struct {
 
 	// serialTypes []int // Fail in case of "blob" or "text"
 	rows []*Row
+
+	isOverflow bool
 }
 
 func (page *Page) selectFirstChild(pages []*Page) *Page {
@@ -687,7 +690,7 @@ func makeTables(pages []*Page) (map[string]*Table, error) {
 			continue
 		}
 		rootPage := pages[rootPageNum-1]
-		if rootPage.pageType == 2 || rootPage.pageType == 10 {
+		if rootPage.pageType == interiorIndex || rootPage.pageType == leafIndex {
 			continue
 		}
 
