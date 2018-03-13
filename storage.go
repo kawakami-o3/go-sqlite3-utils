@@ -332,10 +332,7 @@ func parsePage(cnt []byte, pageNum, pageSize int, header *Header) *Page {
 	*/
 
 	page.pageType = toInt(fetch(cnt, offset, 1))
-	if page.pageType == 0 {
-		fmt.Printf("[%d]WARN: empty page\n", pageNum)
-		return page // empty
-	}
+
 	page.freeBlock = toInt(fetch(cnt, offset+1, 2))
 	page.cellCount = toInt(fetch(cnt, offset+3, 2))
 	page.startCellPtr = toInt(fetch(cnt, offset+5, 2))
@@ -349,6 +346,13 @@ func parsePage(cnt []byte, pageNum, pageSize int, header *Header) *Page {
 		page.rightPtr = toInt(fetch(cnt, offset+8, 4))
 		cellPtrOffset = offset + 12
 	}
+
+	// empty page
+	if page.pageType == 0 {
+		//warn("empty page\n", pageNum)
+		return page
+	}
+
 	/*
 		A b-tree page is divided into regions in the following order:
 
@@ -367,69 +371,6 @@ func parsePage(cnt []byte, pageNum, pageSize int, header *Header) *Page {
 
 	// bytes: content witout free blocks
 	bytes := cnt
-	/*
-		bytes := make([]byte, 0)
-		nFragment := 0
-		if page.freeBlock == 0 {
-			bytes = append(bytes, cnt...)
-		} else {
-			freeBlockPtr := offset + page.freeBlock
-			bytes = append(bytes, cnt[0:freeBlockPtr]...)
-			for 0 < freeBlockPtr-offset {
-				// free block
-				//  | 1   | 2    | 3          | 4              | ...     |
-				//  | next block | block size including header | empty   |
-
-				nextFreeBlockPtr := offset + toInt(fetch(cnt, freeBlockPtr, 2))
-				freeBlockSize := toInt(fetch(cnt, freeBlockPtr+2, 2))
-
-				if nextFreeBlockPtr == offset {
-					bytes = append(bytes, cnt[freeBlockPtr+freeBlockSize:offset+pageSize]...)
-				} else {
-					bytes = append(bytes, cnt[freeBlockPtr+freeBlockSize:nextFreeBlockPtr]...)
-				}
-
-				freeBlockPtr = nextFreeBlockPtr
-
-				nFragment++
-			}
-		}
-	*/
-
-	page.printHeader()
-
-	//mn := header.minLocal
-	//n := mn + (page.cellCount-mn)%(header.usableSize-4)
-	/*
-		if page.cellCount > header.maxLocal {
-			panic("overflow")
-		}
-
-		if page.fragments != nFragment {
-			fmt.Println("fragment!!!", page.fragments, nFragment)
-			panic("")
-		}
-	*/
-
-	//pageEnd = pageNum * pageSize
-	//debug(bytes[pageEnd-ZZ
-	/*
-		if page.freeBlock > 0 {
-			return page // TODO fix: avoid the crash for the page including a free block
-		}
-	*/
-
-	/*
-		if page.pageType == InteriorTable {
-			parseInteriorTablePage(page, cnt, pageNum, pageSize)
-		} else if page.pageType == LeafTable {
-			parseLeafTablePage(page, cnt, pageNum, pageSize)
-		} else if page.pageType == InteriorIndex {
-			parseInteriorIndexPage(page, cnt, pageNum, pageSize)
-		} else if page.pageType == LeafIndex {
-			parseLeafIndexPage(page, cnt, pageNum, pageSize)
-		}
-	*/
 
 	if page.pageType == interiorTable {
 		parseInteriorTablePage(page, bytes, pageNum, pageSize)
@@ -460,20 +401,6 @@ type Page struct {
 
 	// serialTypes []int // Fail in case of "blob" or "text"
 	rows []*Row
-}
-
-func (page *Page) printHeader() {
-	debug("==================================")
-	debug("pageNum:", page.pageNum)
-	debug("pageType:", page.pageType)
-	debug("freeBlock:", page.freeBlock)
-	debug("CellPtr:", page.startCellPtr)
-	debug("fragments:", page.fragments)
-	debug("rightPtr:", page.rightPtr)
-	debug("cellCount:", page.cellCount)
-	debug("cellPtrs:")
-	debugPp(page.cellPtrs)
-	debug("==================================")
 }
 
 func (page *Page) selectFirstChild(pages []*Page) *Page {
@@ -797,10 +724,17 @@ func Load(path string) (*Storage, error) {
 
 	pages := []*Page{}
 	pageNo := 0
+	freeCount := 0
 	for header.pageSize*pageNo < len(cnt) {
 		pageNo++
 		page := parsePage(cnt, pageNo, header.pageSize, header)
 		pages = append(pages, page)
+
+		if page.pageType == 0 {
+			freeCount++
+			//pp.Println(page)
+		}
+
 	}
 
 	fillChildren(pages)
