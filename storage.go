@@ -645,7 +645,6 @@ func selectFirstLeafTable(pages ...*Page) *Page {
 }
 
 func walkPage(page *Page, pageType int) []*Page {
-	//ret := []*Page{page}
 	ret := []*Page{}
 	if page.pageType == pageType {
 		ret = append(ret, page)
@@ -656,7 +655,7 @@ func walkPage(page *Page, pageType int) []*Page {
 	return ret
 }
 
-func makeTables(pages []*Page) map[string]*Table {
+func makeTables(pages []*Page) (map[string]*Table, error) {
 	m := map[string]*Table{}
 
 	// CREATE TABLE sqlite_master ( type text, name text, tbl_name text, rootpage integer, sql text);
@@ -679,7 +678,10 @@ func makeTables(pages []*Page) map[string]*Table {
 
 	for _, v := range m["sqlite_master"].Entries {
 		tableName := v.Datas[2].Value
-		rootPageNum, _ := strconv.Atoi(v.Datas[3].Value)
+		rootPageNum, err := strconv.Atoi(v.Datas[3].Value)
+		if err != nil {
+			return nil, err
+		}
 
 		if rootPageNum == 0 {
 			continue
@@ -692,7 +694,7 @@ func makeTables(pages []*Page) map[string]*Table {
 		m[tableName] = makeTable(walkPage(rootPage, leafTable))
 	}
 
-	return m
+	return m, nil
 }
 
 // Load ...
@@ -739,10 +741,15 @@ func Load(path string) (*Storage, error) {
 
 	fillChildren(pages)
 
+	tables, err := makeTables(pages)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Storage{
 		Path:   path,
 		Header: header,
 		Pages:  pages,
-		Tables: makeTables(pages),
+		Tables: tables,
 	}, nil
 }
