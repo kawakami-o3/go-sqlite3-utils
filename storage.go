@@ -67,8 +67,9 @@ func fetchInt(bytes []byte, offset, size int) int {
 	return toInt(bytes[offset : offset+size])
 }
 
-func parseInteriorIndexPage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
+func parseInteriorIndexPage(page *Page, bytes []byte, pageNum int, header *Header) *Page {
 
+	pageSize := header.pageSize
 	pageOffset := pageSize * (pageNum - 1)
 	for _, cellPtr := range page.cellPtrs {
 		cellOffset := cellPtr + pageOffset
@@ -137,8 +138,9 @@ func parseInteriorIndexPage(page *Page, bytes []byte, pageNum, pageSize int) *Pa
 	return page
 }
 
-func parseLeafIndexPage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
+func parseLeafIndexPage(page *Page, bytes []byte, pageNum int, header *Header) *Page {
 
+	pageSize := header.pageSize
 	pageOffset := pageSize * (pageNum - 1)
 	for _, cellPtr := range page.cellPtrs {
 		cellOffset := cellPtr + pageOffset
@@ -200,7 +202,7 @@ func parseLeafIndexPage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
 	return page
 }
 
-func parseInteriorTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Page {
+func parseInteriorTablePage(page *Page, bytes []byte, pageNum int, header *Header) *Page {
 	/*
 		Table B-Tree Interior Cell (header 0x05):
 			* A 4-byte big-endian page number which is the left child pointer.
@@ -208,6 +210,7 @@ func parseInteriorTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Pa
 	*/
 	//pageEnd := pageSize * pageNum
 
+	pageSize := header.pageSize
 	pageOffset := pageSize * (pageNum - 1)
 	for _, cellPtr := range page.cellPtrs {
 		cellOffset := cellPtr + pageOffset
@@ -229,7 +232,7 @@ func parseInteriorTablePage(page *Page, bytes []byte, pageNum, pageSize int) *Pa
 	return page
 }
 
-func parseLeafTablePage(page *Page, bytes []byte, pageNum, pageSize int) (*Page, error) {
+func parseLeafTablePage(page *Page, bytes []byte, pageNum int, header *Header) (*Page, error) {
 	// In case of type=13 ...
 	/*
 		Table B-Tree Leaf Cell (header 0x0d):
@@ -240,6 +243,7 @@ func parseLeafTablePage(page *Page, bytes []byte, pageNum, pageSize int) (*Page,
 			the overflow page list - omitted if all payload fits on the b-tree page.
 	*/
 
+	pageSize := header.pageSize
 	pageOffset := pageSize * (pageNum - 1)
 	for _, cellPtr := range page.cellPtrs {
 		cellOffset := cellPtr + pageOffset
@@ -260,11 +264,23 @@ func parseLeafTablePage(page *Page, bytes []byte, pageNum, pageSize int) (*Page,
 		//debug("rowid:", rowid, i, cellOffset, delta, fetch(bytes, cellOffset+delta, 8), len(bytes))
 		delta += int(i)
 
-		if cellOffset+delta+payloadSize > pageNum*pageSize {
+		// overflow
+		//if cellOffset+delta+payloadSize > pageNum*pageSize {
+		if payloadSize > header.maxLocal {
+			//firstSize := pageNum*pageSize - (cellOffset + delta) - 4
+			/*
+				nLocal := header.minLocal + (payloadSize-header.minLocal)%(header.usableSize-4)
+				if nLocal > header.maxLocal {
+					fmt.Println("!!!", header.minLocal, header.maxLocal, nLocal, header.usableSize)
+					//nLocal = header.minLocal
+				}
+			*/
 			warn("Need to check an overflow page. (exp, act) = ",
-				cellOffset+payloadSize, pageNum*pageSize, payloadSize)
+				cellOffset+delta+payloadSize, pageNum*pageSize, payloadSize)
 
 			page.isOverflow = true
+			//fmt.Println(pageNum)
+			//fmt.Println(fetchInt(bytes, cellOffset+delta+nLocal, 4))
 			return page, nil
 		}
 
@@ -314,14 +330,14 @@ func parseLeafTablePage(page *Page, bytes []byte, pageNum, pageSize int) (*Page,
 	return page, nil
 }
 
-func parsePage(cnt []byte, pageNum, pageSize int, header *Header) *Page {
+func parsePage(cnt []byte, pageNum int, header *Header) *Page {
 	page := &Page{
 		pageNum:  pageNum,
 		children: make(map[int]*Page),
 	}
 	//page.pageNum = pageNum
 
-	offset := pageSize * (pageNum - 1)
+	offset := header.pageSize * (pageNum - 1)
 	if offset == 0 {
 		offset = 100 // database header in the first page
 	}
@@ -374,13 +390,13 @@ func parsePage(cnt []byte, pageNum, pageSize int, header *Header) *Page {
 	bytes := cnt
 
 	if page.pageType == interiorTable {
-		parseInteriorTablePage(page, bytes, pageNum, pageSize)
+		parseInteriorTablePage(page, bytes, pageNum, header)
 	} else if page.pageType == leafTable {
-		parseLeafTablePage(page, bytes, pageNum, pageSize)
+		parseLeafTablePage(page, bytes, pageNum, header)
 	} else if page.pageType == interiorIndex {
-		parseInteriorIndexPage(page, bytes, pageNum, pageSize)
+		parseInteriorIndexPage(page, bytes, pageNum, header)
 	} else if page.pageType == leafIndex {
-		parseLeafIndexPage(page, bytes, pageNum, pageSize)
+		parseLeafIndexPage(page, bytes, pageNum, header)
 	}
 
 	//debugPp(page)
@@ -732,7 +748,7 @@ func Load(path string) (*Storage, error) {
 	freeCount := 0
 	for header.pageSize*pageNo < len(cnt) {
 		pageNo++
-		page := parsePage(cnt, pageNo, header.pageSize, header)
+		page := parsePage(cnt, pageNo, header)
 		pages = append(pages, page)
 
 		if page.pageType == 0 {
