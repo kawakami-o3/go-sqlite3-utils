@@ -84,7 +84,8 @@ func parseInteriorIndexPage(page *Page, bytes []byte, pageNum int, header *Heade
 		debug("0x02:offset:", u.S16(cellOffset), page.startCellPtr, u.S16(pageSize*(pageNum-1)))
 		debug("0x02:child:", childPageNumber, fetch(bytes, cellOffset, 4))
 
-		v, i = decodeVarint32(fetch(bytes, cellOffset+delta, 8))
+		//v, i = decodeVarint32(fetch(bytes, cellOffset+delta, 8))
+		v, i = decodeVarint(fetch(bytes, cellOffset+delta, 8))
 		delta += int(i)
 		payloadSize = int(v)
 		//debug("payload size:", payloadSize, i, fetch(bytes, cellOffset, payloadSize+4))
@@ -269,18 +270,23 @@ func parseLeafTablePage(page *Page, bytes []byte, pageNum int, header *Header) (
 		if payloadSize > header.maxLocal {
 			//firstSize := pageNum*pageSize - (cellOffset + delta) - 4
 			/*
+				fmt.Println("-----")
 				nLocal := header.minLocal + (payloadSize-header.minLocal)%(header.usableSize-4)
 				if nLocal > header.maxLocal {
 					fmt.Println("!!!", header.minLocal, header.maxLocal, nLocal, header.usableSize)
 					//nLocal = header.minLocal
 				}
+				fmt.Println(page.pageType)
+				fmt.Println(pageNum)
+				fmt.Println(payloadSize)
+				fmt.Println(fetchInt(bytes, cellOffset+delta+nLocal, 4))
+				fmt.Println(fetchInt(bytes, cellOffset+delta+header.minLocal, 4))
 			*/
 			warn("Need to check an overflow page. (exp, act) = ",
 				cellOffset+delta+payloadSize, pageNum*pageSize, payloadSize)
 
 			page.isOverflow = true
-			//fmt.Println(pageNum)
-			//fmt.Println(fetchInt(bytes, cellOffset+delta+nLocal, 4))
+
 			return page, nil
 		}
 
