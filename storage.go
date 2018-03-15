@@ -267,26 +267,27 @@ func parseLeafTablePage(page *Page, bytes []byte, pageNum int, header *Header) (
 
 		// overflow
 		//if cellOffset+delta+payloadSize > pageNum*pageSize {
-		if payloadSize > header.maxLocal {
+		if payloadSize > page.maxLocal {
 			//firstSize := pageNum*pageSize - (cellOffset + delta) - 4
 			/*
 				fmt.Println("-----")
-				nLocal := header.minLocal + (payloadSize-header.minLocal)%(header.usableSize-4)
-				if nLocal > header.maxLocal {
-					fmt.Println("!!!", header.minLocal, header.maxLocal, nLocal, header.usableSize)
-					//nLocal = header.minLocal
+				nLocal := page.minLocal + (payloadSize-page.minLocal)%(header.usableSize-4)
+				if nLocal > page.maxLocal {
+					fmt.Println("!!!", page.minLocal, page.maxLocal, nLocal, header.usableSize)
+					nLocal = header.minLocal
 				}
-				fmt.Println(page.pageType)
-				fmt.Println(pageNum)
-				fmt.Println(payloadSize)
-				fmt.Println(fetchInt(bytes, cellOffset+delta+nLocal, 4))
-				fmt.Println(fetchInt(bytes, cellOffset+delta+header.minLocal, 4))
+				fmt.Println("pageNum:", pageNum)
+				fmt.Println("paylaod:", payloadSize)
+				fmt.Println("surplus, min/max:", nLocal, page.minLocal, page.maxLocal, header.maxLeaf)
+				fmt.Println("overflow page:", fetchInt(bytes, cellOffset+delta+nLocal, 4))
 			*/
+
 			warn("Need to check an overflow page. (exp, act) = ",
 				cellOffset+delta+payloadSize, pageNum*pageSize, payloadSize)
 
 			page.isOverflow = true
 
+			//if payloadSize == 12634 { panic("") }
 			return page, nil
 		}
 
@@ -355,6 +356,13 @@ func parsePage(cnt []byte, pageNum int, header *Header) *Page {
 	*/
 
 	page.pageType = toInt(fetch(cnt, offset, 1))
+	if page.pageType == interiorTable || page.pageType == leafTable {
+		page.maxLocal = header.maxLeaf
+		page.minLocal = header.minLeaf
+	} else {
+		page.maxLocal = header.maxLocal
+		page.minLocal = header.minLocal
+	}
 
 	page.freeBlock = toInt(fetch(cnt, offset+1, 2))
 	page.cellCount = toInt(fetch(cnt, offset+3, 2))
@@ -426,6 +434,8 @@ type Page struct {
 	rows []*Row
 
 	isOverflow bool
+	maxLocal   int
+	minLocal   int
 }
 
 func (page *Page) selectFirstChild(pages []*Page) *Page {
