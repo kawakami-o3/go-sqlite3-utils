@@ -67,6 +67,12 @@ func fetchInt(bytes []byte, offset, size int) int {
 	return toInt(bytes[offset : offset+size])
 }
 
+func fetchCopy(bytes []byte, offset, size int) []byte {
+	ret := make([]byte, size)
+	copy(ret, fetch(bytes, offset, size))
+	return ret
+}
+
 func parseInteriorIndexPage(page *Page, bytes []byte, pageNum int, header *Header) *Page {
 
 	pageSize := header.pageSize
@@ -267,32 +273,35 @@ func parseLeafTablePage(page *Page, bytes []byte, pageNum int, header *Header) (
 
 		// overflow
 		//if cellOffset+delta+payloadSize > pageNum*pageSize {
+		payloadBytes := []byte{}
+
 		if payloadSize > page.maxLocal {
 			//firstSize := pageNum*pageSize - (cellOffset + delta) - 4
-			/*
-				fmt.Println("-----")
-				nLocal := page.minLocal + (payloadSize-page.minLocal)%(header.usableSize-4)
-				if nLocal > page.maxLocal {
-					fmt.Println("!!!", page.minLocal, page.maxLocal, nLocal, header.usableSize)
-					nLocal = header.minLocal
-				}
-				fmt.Println("pageNum:", pageNum)
-				fmt.Println("paylaod:", payloadSize)
-				fmt.Println("surplus, min/max:", nLocal, page.minLocal, page.maxLocal, header.maxLeaf)
-				fmt.Println("overflow page:", fetchInt(bytes, cellOffset+delta+nLocal, 4))
-			*/
-
-			warn("Need to check an overflow page. (exp, act) = ",
-				cellOffset+delta+payloadSize, pageNum*pageSize, payloadSize)
+			nLocal := page.minLocal + (payloadSize-page.minLocal)%(header.usableSize-4)
+			if nLocal > page.maxLocal {
+				nLocal = header.minLocal
+			}
 
 			page.isOverflow = true
 
-			//if payloadSize == 12634 { panic("") }
-			return page, nil
-		}
+			payloadBytes = fetchCopy(bytes, cellOffset+delta, nLocal)
 
-		//payloadBytes := fetch(bytes, cellOffset+delta, payloadSize)
-		payloadBytes := fetch(bytes, cellOffset+delta, payloadSize)
+			overflow := fetchInt(bytes, cellOffset+delta+nLocal, 4)
+			for overflow > 0 {
+				nPage := payloadSize - nLocal
+				if nPage > header.usableSize {
+					nPage = header.usableSize
+				}
+				payloadBytes = append(payloadBytes, fetchCopy(bytes, (overflow-1)*pageSize+4, nPage)...)
+				overflow = fetchInt(bytes, (overflow-1)*pageSize, 4)
+				nLocal += nPage
+			}
+
+		} else {
+
+			//payloadBytes := fetch(bytes, cellOffset+delta, payloadSize)
+			payloadBytes = fetch(bytes, cellOffset+delta, payloadSize)
+		}
 
 		v, i = decodeVarint(payloadBytes)
 		headerSize := int(v)
