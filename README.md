@@ -26,8 +26,8 @@ pages.Tables["person"].Entries[0].Datas[0].Value
 
 ## Todo
 
-* Complicated file (v0.0 can parse a very simple case only)
-* Overflow page
-* Schema parser
-* Index page
-* Writer
+[x] Complicated file: Now, the parser can read wc.db of subversion.
+[x] Overflow page
+[ ] Schema parser
+[ ] Index page
+[ ] Writer
