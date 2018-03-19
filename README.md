@@ -18,10 +18,10 @@ Load the SQLite file, ```/tmp/test.db```,
 sqlite3utils.Load("/tmp/test.db")
 ```
 
-Get the first value at the first row in the table, "person",
+Get the first value at the second row in the table, "person",
 
 ```
-pages.Tables["person"].Entries[0].Datas[0].Value
+pages.Tables["person"].Entries[1].Datas[0].Value
 ```
 
 ## Todo
